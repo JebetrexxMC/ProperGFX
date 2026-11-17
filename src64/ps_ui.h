@@ -17,6 +17,7 @@ struct PSUIStatus
     const PSFxStats* fx = nullptr;
     const PSShadowStats* shadow = nullptr;
     const struct PSSceneStats* scene = nullptr;
+    const struct PSDeferredStats* deferred = nullptr;   // 1.5.0
     unsigned int shadowTex = 0;
 };
 

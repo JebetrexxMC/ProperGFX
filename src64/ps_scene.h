@@ -13,7 +13,9 @@
 #include <GLES2/gl2.h>
 #include <stdint.h>
 
-enum PSSceneEvent { PS_EV_BEFORE_SCENE = 1, PS_EV_AFTER_SCENE = 2, PS_EV_TAG = 3 };
+enum PSSceneEvent { PS_EV_BEFORE_SCENE = 1, PS_EV_AFTER_SCENE = 2, PS_EV_TAG = 3, PS_EV_POST = 4 };
+// 1.5.0: PS_EV_POST is posted by the CPostEffects::MobileRender hook (game thread) = the 3D world and its effects are done, the HUD /
+// radar / menus are not drawn yet: Proper GFX's post effects run there, on the scene target, so menus and the pause menu are never touched.
 // 1.4.6: PS_EV_TAG carries an entity kind (PSDrawKind) in `arg`: posted by the CEntity::Render hook before (kind) and after (0)
 // every entity, so the render thread knows which draws are LOD stand-ins / static buildings / things that move (the libZyZGFX64 way).
 enum PSDrawKind { PS_KIND_NONE = 0, PS_KIND_BUILDING = 1, PS_KIND_TREE = 2, PS_KIND_LOD = 3, PS_KIND_LODTREE = 4, PS_KIND_DYNAMIC = 5 };
@@ -23,7 +25,7 @@ struct PSSceneStats
 {
     bool  rqSymbols = false, rqReady = false, rqBadLayout = false, chained = false, threaded = false;
     int   rqSlot = -1;
-    uint32_t posted[4] = {0, 0, 0, 0}, ran[4] = {0, 0, 0, 0}, skippedFull = 0;
+    uint32_t posted[5] = {0, 0, 0, 0, 0}, ran[5] = {0, 0, 0, 0, 0}, skippedFull = 0;
     // depth upgrade
     int   sceneFbo = 0, w = 0, h = 0, depthBits = 0, stencilBits = 0, swaps = 0, failures = 0, targets = 0;
     GLuint depthTex = 0;

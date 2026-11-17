@@ -60,39 +60,46 @@ void ApplyStyle(float sc)
     ImGuiStyle& st = ImGui::GetStyle();
     st = ImGuiStyle();
     ImGui::StyleColorsDark();
-    st.WindowRounding = 6; st.FrameRounding = 4; st.GrabRounding = 4; st.ScrollbarRounding = 4; st.TabRounding = 4; st.ChildRounding = 4;
-    st.WindowBorderSize = 1; st.FrameBorderSize = 0; st.PopupBorderSize = 0;
-    st.WindowPadding = ImVec2(12, 10); st.FramePadding = ImVec2(8, 6); st.ItemSpacing = ImVec2(10, 8);
-    st.ItemInnerSpacing = ImVec2(8, 6); st.GrabMinSize = 22; st.ScrollbarSize = 30; st.IndentSpacing = 16;
-    st.SeparatorTextBorderSize = 2; st.SeparatorTextPadding = ImVec2(18, 4); st.SeparatorTextAlign = ImVec2(0.0f, 0.5f);
+    // 1.5.0: Firestorm "Preferences" layout, plain white accents on a neutral dark panel
+    st.WindowRounding = 3; st.FrameRounding = 2; st.GrabRounding = 2; st.ScrollbarRounding = 2; st.TabRounding = 2; st.ChildRounding = 2;
+    st.WindowBorderSize = 1; st.FrameBorderSize = 1; st.PopupBorderSize = 1; st.ChildBorderSize = 1;
+    st.WindowPadding = ImVec2(10, 8); st.FramePadding = ImVec2(8, 5); st.ItemSpacing = ImVec2(10, 7);
+    st.ItemInnerSpacing = ImVec2(8, 6); st.GrabMinSize = 20; st.ScrollbarSize = 26; st.IndentSpacing = 16;
+    st.SeparatorTextBorderSize = 1; st.SeparatorTextPadding = ImVec2(14, 3); st.SeparatorTextAlign = ImVec2(0.0f, 0.5f);
+    st.WindowTitleAlign = ImVec2(0.0f, 0.5f);
     st.ScaleAllSizes(sc);
-    // Proper Shaders identity: deep plum + coral/orange (sampled from the PROPER SHADERS logo)
     ImVec4* c = st.Colors;
-    const ImVec4 orange(0.93f, 0.50f, 0.27f, 1.0f), orangeHi(1.0f, 0.62f, 0.38f, 1.0f);
-    c[ImGuiCol_WindowBg]        = ImVec4(0.070f, 0.040f, 0.090f, 0.965f);
-    c[ImGuiCol_ChildBg]         = ImVec4(0, 0, 0, 0);
-    c[ImGuiCol_PopupBg]         = ImVec4(0.10f, 0.055f, 0.12f, 0.98f);
-    c[ImGuiCol_Border]          = ImVec4(0.93f, 0.50f, 0.27f, 0.35f);
-    c[ImGuiCol_TitleBg]         = ImVec4(0.12f, 0.05f, 0.11f, 1.00f);
-    c[ImGuiCol_TitleBgActive]   = ImVec4(0.19f, 0.07f, 0.16f, 1.00f);
-    c[ImGuiCol_FrameBg]         = ImVec4(0.16f, 0.085f, 0.17f, 1.00f);
-    c[ImGuiCol_FrameBgHovered]  = ImVec4(0.24f, 0.12f, 0.23f, 1.00f);
-    c[ImGuiCol_FrameBgActive]   = ImVec4(0.30f, 0.15f, 0.27f, 1.00f);
-    c[ImGuiCol_SliderGrab]      = orange;
-    c[ImGuiCol_SliderGrabActive]= orangeHi;
-    c[ImGuiCol_CheckMark]       = orangeHi;
-    c[ImGuiCol_Button]          = ImVec4(0.36f, 0.14f, 0.30f, 1.00f);
-    c[ImGuiCol_ButtonHovered]   = ImVec4(0.50f, 0.20f, 0.38f, 1.00f);
-    c[ImGuiCol_ButtonActive]    = ImVec4(0.93f, 0.50f, 0.27f, 1.00f);
-    c[ImGuiCol_Header]          = ImVec4(0.30f, 0.12f, 0.26f, 1.00f);
-    c[ImGuiCol_HeaderHovered]   = ImVec4(0.42f, 0.17f, 0.33f, 1.00f);
-    c[ImGuiCol_HeaderActive]    = ImVec4(0.52f, 0.22f, 0.38f, 1.00f);
-    c[ImGuiCol_Separator]       = ImVec4(0.93f, 0.50f, 0.27f, 0.45f);
-    c[ImGuiCol_ScrollbarBg]     = ImVec4(0.04f, 0.02f, 0.06f, 0.8f);
-    c[ImGuiCol_ScrollbarGrab]   = ImVec4(0.45f, 0.19f, 0.36f, 1.0f);
-    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.60f, 0.26f, 0.44f, 1.0f);
-    c[ImGuiCol_ResizeGrip]      = ImVec4(0.93f, 0.50f, 0.27f, 0.35f);
-    c[ImGuiCol_TextDisabled]    = ImVec4(0.58f, 0.50f, 0.60f, 1.0f);
+    const ImVec4 white(1.f, 1.f, 1.f, 1.f), whiteDim(0.86f, 0.86f, 0.86f, 1.f);
+    c[ImGuiCol_Text]            = ImVec4(0.94f, 0.94f, 0.94f, 1.f);
+    c[ImGuiCol_TextDisabled]    = ImVec4(0.55f, 0.55f, 0.57f, 1.f);
+    c[ImGuiCol_WindowBg]        = ImVec4(0.075f, 0.075f, 0.080f, 0.965f);
+    c[ImGuiCol_ChildBg]         = ImVec4(0.105f, 0.105f, 0.112f, 0.90f);
+    c[ImGuiCol_PopupBg]         = ImVec4(0.10f, 0.10f, 0.105f, 0.98f);
+    c[ImGuiCol_Border]          = ImVec4(1.f, 1.f, 1.f, 0.16f);
+    c[ImGuiCol_BorderShadow]    = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_TitleBg]         = ImVec4(0.13f, 0.13f, 0.14f, 1.f);
+    c[ImGuiCol_TitleBgActive]   = ImVec4(0.17f, 0.17f, 0.18f, 1.f);
+    c[ImGuiCol_TitleBgCollapsed]= ImVec4(0.13f, 0.13f, 0.14f, 1.f);
+    c[ImGuiCol_FrameBg]         = ImVec4(0.17f, 0.17f, 0.18f, 1.f);
+    c[ImGuiCol_FrameBgHovered]  = ImVec4(0.23f, 0.23f, 0.24f, 1.f);
+    c[ImGuiCol_FrameBgActive]   = ImVec4(0.28f, 0.28f, 0.30f, 1.f);
+    c[ImGuiCol_SliderGrab]      = whiteDim;
+    c[ImGuiCol_SliderGrabActive]= white;
+    c[ImGuiCol_CheckMark]       = white;
+    c[ImGuiCol_Button]          = ImVec4(0.20f, 0.20f, 0.21f, 1.f);
+    c[ImGuiCol_ButtonHovered]   = ImVec4(0.29f, 0.29f, 0.30f, 1.f);
+    c[ImGuiCol_ButtonActive]    = ImVec4(0.40f, 0.40f, 0.42f, 1.f);
+    c[ImGuiCol_Header]          = ImVec4(0.20f, 0.20f, 0.21f, 1.f);
+    c[ImGuiCol_HeaderHovered]   = ImVec4(0.28f, 0.28f, 0.29f, 1.f);
+    c[ImGuiCol_HeaderActive]    = ImVec4(0.36f, 0.36f, 0.37f, 1.f);
+    c[ImGuiCol_Separator]       = ImVec4(1.f, 1.f, 1.f, 0.22f);
+    c[ImGuiCol_ScrollbarBg]     = ImVec4(0.05f, 0.05f, 0.055f, 0.8f);
+    c[ImGuiCol_ScrollbarGrab]   = ImVec4(0.32f, 0.32f, 0.33f, 1.f);
+    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.45f, 0.45f, 0.46f, 1.f);
+    c[ImGuiCol_ScrollbarGrabActive]  = whiteDim;
+    c[ImGuiCol_ResizeGrip]      = ImVec4(1.f, 1.f, 1.f, 0.20f);
+    c[ImGuiCol_ResizeGripHovered] = ImVec4(1.f, 1.f, 1.f, 0.45f);
+    c[ImGuiCol_ResizeGripActive]  = white;
 }
 
 void BuildFonts(float px)
@@ -461,21 +468,41 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
     ImGui::PopItemWidth();
 }
 
-// floating button (drawn on the foreground list, hit-tested by hand so it works with raw touch input)
+// 1.5.0 Proper GFX symbol, vector only (no texture, no text): a gear ring with 8 teeth around a half-filled circle
+// (the "light / shadow" half disc = shader settings). Drawn with ImDrawList so it stays sharp at every size.
+void DrawModIcon(ImDrawList* dl, ImVec2 c, float r, ImU32 col, ImU32 cut)
+{
+    const int teeth = 8; const float PI = 3.14159265f;
+    const float rIn = r * 0.80f, rOut = r;
+    // gear: solid disc + 8 convex teeth (no triangle fan -> no anti-aliasing seams)
+    dl->AddCircleFilled(c, rIn, col, 40);
+    for (int i = 0; i < teeth; ++i)
+    {
+        float a0 = (i / (float)teeth) * 2.f * PI, w = 2.f * PI / teeth;
+        float t[4] = { a0 - w * 0.24f, a0 - w * 0.15f, a0 + w * 0.15f, a0 + w * 0.24f };
+        float rr[4] = { rIn * 0.96f, rOut, rOut, rIn * 0.96f };
+        ImVec2 q[4];
+        for (int k = 0; k < 4; ++k) q[k] = ImVec2(c.x + cosf(t[k]) * rr[k], c.y + sinf(t[k]) * rr[k]);
+        dl->AddConvexPolyFilled(q, 4, col);
+    }
+    // hollow the ring
+    dl->AddCircleFilled(c, r * 0.60f, cut, 32);
+    // half-filled disc (left half solid, right half outlined): the lit / shaded symbol
+    const float rd = r * 0.40f;
+    dl->PathArcTo(c, rd, PI * 0.5f, PI * 1.5f, 20); dl->PathFillConvex(col);
+    dl->AddCircle(c, rd, col, 28, fmaxf(1.2f, r * 0.08f));
+}
+
+// floating button: a rounded box with the vector icon (drawn on the foreground list, hit-tested by hand so it works with raw touch input)
 void DrawButton(PSSettings& s, int W, int H)
 {
     ImGuiIO& io = ImGui::GetIO();
     ImDrawList* dl = ImGui::GetForegroundDrawList();
-    ImFont* font = ImGui::GetFont();
-    float fs = g_fontPx * 0.78f * s.buttonScale;
     g_idle += io.DeltaTime;
-    // idle -> shrink to a small dot so the button can never sit on top of another mod's label/button
+    // idle -> shrink a little so the button never sits on top of another mod's label / button
     bool collapsed = s.buttonCollapse && !g_menuOpen && !g_pressing && g_idle > 4.f;
-    const char* label = collapsed ? "GFX" : "Proper GFX Settings";
-    ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0.f, label);
-    float padX = fs * 0.9f, padY = fs * 0.55f;
-    ImVec2 sz(ts.x + padX * 2.f, ts.y + padY * 2.f);
-    if (collapsed) { float d = fmaxf(ts.x, ts.y) + fs * 1.1f; sz = ImVec2(d, d); padX = (sz.x - ts.x) * 0.5f; padY = (sz.y - ts.y) * 0.5f; }
+    float side = g_fontPx * 2.3f * s.buttonScale * (collapsed ? 0.72f : 1.0f);
+    ImVec2 sz(side, side);
     ImVec2 c(s.buttonX * W, s.buttonY * H);
     ImVec2 mn(c.x - sz.x * 0.5f, c.y - sz.y * 0.5f);
     if (mn.x < 0) mn.x = 0; if (mn.y < 0) mn.y = 0;
@@ -511,21 +538,17 @@ void DrawButton(PSSettings& s, int W, int H)
     }
     float a = s.buttonOpacity;
     bool active = g_pressing || g_menuOpen;
-    ImU32 bg = ImGui::GetColorU32(ImVec4(0.17f, 0.065f, 0.15f, a * (active ? 0.95f : (collapsed ? 0.55f : 0.78f))));
-    ImU32 bd = ImGui::GetColorU32(ImVec4(0.95f, 0.52f, 0.28f, a * (g_dragging ? 1.0f : (collapsed ? 0.65f : 0.85f))));
-    ImU32 tx = ImGui::GetColorU32(ImVec4(1, 1, 1, collapsed ? 0.45f + a * 0.4f : 0.55f + a * 0.45f));
-    if (collapsed)
+    if (a > 0.001f)
     {
+        const float rounding = side * 0.18f, bw = fmaxf(1.5f, side * 0.045f);
+        ImU32 bg  = ImGui::GetColorU32(active ? ImVec4(1.f, 1.f, 1.f, a * 0.95f) : ImVec4(0.06f, 0.06f, 0.065f, a * (collapsed ? 0.55f : 0.80f)));
+        ImU32 bd  = ImGui::GetColorU32(ImVec4(1.f, 1.f, 1.f, a * (g_dragging ? 1.0f : (collapsed ? 0.55f : 0.85f))));
+        ImU32 ic  = ImGui::GetColorU32(active ? ImVec4(0.f, 0.f, 0.f, a) : ImVec4(1.f, 1.f, 1.f, a * (collapsed ? 0.8f : 1.f)));
+        dl->AddRectFilled(mn, mx, bg, rounding);
+        dl->AddRect(mn, mx, bd, rounding, 0, bw);
         ImVec2 cc((mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f);
-        dl->AddCircleFilled(cc, sz.x * 0.5f, bg, 24);
-        dl->AddCircle(cc, sz.x * 0.5f, bd, 24, fmaxf(1.5f, fs * 0.07f));
+        DrawModIcon(dl, cc, side * 0.34f, ic, bg);
     }
-    else
-    {
-        dl->AddRectFilled(mn, mx, bg, sz.y * 0.5f);
-        dl->AddRect(mn, mx, bd, sz.y * 0.5f, 0, fmaxf(1.5f, fs * 0.07f));
-    }
-    dl->AddText(font, fs, ImVec2(mn.x + padX, mn.y + padY), tx, label);
 
     // exact hit area (+3 px): nothing outside the drawn button is ever swallowed
     std::lock_guard<std::mutex> l(g_mx);

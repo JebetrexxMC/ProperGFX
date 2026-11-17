@@ -1,4 +1,4 @@
-// Proper GFX Mobile (v1.4.8, 32-bit source tree: C++/H only, AML + SAUtils) - AML mod for GTA San Andreas Android (2.00 armeabi-v7a / 2.10 arm64-v8a)
+// Proper GFX Mobile (v1.5.0, 32-bit source tree: C++/H only, AML + SAUtils) - AML mod for GTA San Andreas Android (2.00 armeabi-v7a / 2.10 arm64-v8a)
 // Everything is hooked by exported symbol name, so one source tree serves both builds.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
@@ -38,7 +38,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.8, ProperGFX)
+MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.5.0, ProperGFX)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -57,6 +57,7 @@ static short* g_pWeatherOld = nullptr; static short* g_pWeatherNew = nullptr; st
 
 static PSSettings g_cfg;
 static bool*  g_pUserPause = nullptr;        // CTimer::m_UserPause (the pause menu is open)
+static bool*  g_pCodePause = nullptr;        // CTimer::m_CodePause (main menu / frontend / cutscene menus: the game itself is frozen) - 1.5.0
 // 1.4.6 gameplay detection: the 3D world is rendered (RenderScene) only in gameplay - never in the main menu, the pause menu or a loading screen
 static std::atomic<unsigned> g_sceneCalls{0};
 static unsigned g_sceneSeen = 0; static int g_noSceneFrames = 1000;
@@ -141,7 +142,7 @@ static void OnFrame()
     {   // gameplay = the game rendered its 3D world in the last few frames and the pause menu is not open (1.4.6)
         const unsigned sc = g_sceneCalls.load(std::memory_order_relaxed);
         if (sc != g_sceneSeen) { g_sceneSeen = sc; g_noSceneFrames = 0; } else if (g_noSceneFrames < 1000) ++g_noSceneFrames;
-        const bool paused = g_pUserPause && *g_pUserPause;
+        const bool paused = (g_pUserPause && *g_pUserPause) || (g_pCodePause && *g_pCodePause);   // 1.5.0: no FX over the main / pause / frontend menus
         g_inGame = (!g_sceneHooked || g_noSceneFrames < 8) && !paused;
     }
 
@@ -515,6 +516,7 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     SET_TO(g_pWeatherInterp, aml->GetSym(hGame, "_ZN8CWeather18InterpolationValueE"));
 
     SET_TO(g_pUserPause,   aml->GetSym(hGame, "_ZN6CTimer11m_UserPauseE"));
+    SET_TO(g_pCodePause,   aml->GetSym(hGame, "_ZN6CTimer11m_CodePauseE"));
     Shadow_SetAlphaTestState((const int*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE7curFunc"),
                              (const float*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE6curVal"));
     if (aml->GetSym(hGame, "_Z11RenderSceneb")) { HOOKSYM(RenderScene, hGame, "_Z11RenderSceneb"); g_sceneHooked = true; }

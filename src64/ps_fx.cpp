@@ -255,11 +255,13 @@ bool EnsureInit()
     return true;
 }
 
+GLuint g_srcFbo = 0, g_sizedFbo = 0xffffffffu;
 bool EnsureSize(int w, int h)
 {
-    if (G.sceneTex && G.sceneW == w && G.sceneH == h) return true;
+    if (G.sceneTex && G.sceneW == w && G.sceneH == h && g_sizedFbo == g_srcFbo) return true;
     if (G.sceneTex) glDeleteTextures(1, &G.sceneTex);
-    GLint ab = 0; glBindFramebuffer(GL_FRAMEBUFFER, 0); glGetIntegerv(GL_ALPHA_BITS, &ab);
+    g_sizedFbo = g_srcFbo;
+    GLint ab = 0; glBindFramebuffer(GL_FRAMEBUFFER, g_srcFbo); glGetIntegerv(GL_ALPHA_BITS, &ab);
     G.sceneFmt = ab > 0 ? GL_RGBA : GL_RGB;
     glGenTextures(1, &G.sceneTex);
     BindTex(0, G.sceneTex);
@@ -306,7 +308,7 @@ void FX_Shutdown()
 bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
 {
     if (fi.w < 16 || fi.h < 16) return false;
-    g_fi = fi;
+    g_fi = fi; g_srcFbo = fi.targetFbo;
     if (!EnsureInit()) return false;
     if (!EnsureSize(fi.w, fi.h)) { G.failed = true; snprintf(G.status, sizeof(G.status), "render targets failed"); return false; }
 
@@ -375,7 +377,7 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
     // 1) grab the finished frame
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, fi.targetFbo);
     BindTex(0, G.sceneTex);
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
     GLuint src = G.sceneTex;
@@ -464,7 +466,7 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
         customOk = G.pCustom.id && MakeRT(G.post, w, h, false);
     }
     if (customOk) Target(G.post);
-    else { glBindFramebuffer(GL_FRAMEBUFFER, 0); glViewport(0, 0, w, h); }
+    else { glBindFramebuffer(GL_FRAMEBUFFER, fi.targetFbo); glViewport(0, 0, w, h); }
     const Prog& P = *PF;
     Use(P, 6);
     BindTex(0, src);
@@ -472,7 +474,8 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
     BindTex(2, dofTex);
     BindTex(3, wantAuto ? G.lum[G.lumIdx].tex : G.dummyTex);
     BindTex(4, LUT_Texture() ? LUT_Texture() : G.dummyTex);
-    Set1i(P, "uScene", 0); Set1i(P, "uBloom", 1); Set1i(P, "uDof", 2); Set1i(P, "uLum", 3); Set1i(P, "uLut", 4);
+    BindTex(5, (s.dofMode == 2 && fi.cocTex) ? fi.cocTex : G.dummyTex);
+    Set1i(P, "uScene", 0); Set1i(P, "uBloom", 1); Set1i(P, "uDof", 2); Set1i(P, "uLum", 3); Set1i(P, "uLut", 4); Set1i(P, "uCoc", 5);
 
     const float k = (tm == TM_OFF) ? 0.f : 1.8f * s.hdrAmount.v;
     const float norm = (tm == TM_OFF) ? 1.f : 1.f / fmaxf(TmCpu(tm, 1.f + k), 0.05f);
@@ -497,7 +500,7 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
     DrawTri();
     if (customOk)
     {   // 7) [GLSL] custom pass: custom.glsl on the finished picture
-        glBindFramebuffer(GL_FRAMEBUFFER, 0); glViewport(0, 0, w, h);
+        glBindFramebuffer(GL_FRAMEBUFFER, fi.targetFbo); glViewport(0, 0, w, h);
         Use(G.pCustom, 7);
         BindTex(0, G.post.tex); Set1i(G.pCustom, "uTex", 0);
         Set4(G.pCustom, "uRes", (float)w, (float)h, 1.f / w, 1.f / h);

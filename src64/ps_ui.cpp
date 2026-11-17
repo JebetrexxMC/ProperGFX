@@ -8,6 +8,7 @@
 #include "ps_glsl.h"
 #include "ps_scene.h"
 #include "ps_shadow.h"
+#include "ps_deferred.h"
 #include <atomic>
 #include <strings.h>
 #include "imgui.h"
@@ -63,39 +64,46 @@ void ApplyStyle(float sc)
     ImGuiStyle& st = ImGui::GetStyle();
     st = ImGuiStyle();
     ImGui::StyleColorsDark();
-    st.WindowRounding = 6; st.FrameRounding = 4; st.GrabRounding = 4; st.ScrollbarRounding = 4; st.TabRounding = 4; st.ChildRounding = 4;
-    st.WindowBorderSize = 1; st.FrameBorderSize = 0; st.PopupBorderSize = 0;
-    st.WindowPadding = ImVec2(12, 10); st.FramePadding = ImVec2(8, 6); st.ItemSpacing = ImVec2(10, 8);
-    st.ItemInnerSpacing = ImVec2(8, 6); st.GrabMinSize = 22; st.ScrollbarSize = 30; st.IndentSpacing = 16;
-    st.SeparatorTextBorderSize = 2; st.SeparatorTextPadding = ImVec2(18, 4); st.SeparatorTextAlign = ImVec2(0.0f, 0.5f);
+    // 1.5.0: Firestorm "Preferences" layout, plain white accents on a neutral dark panel
+    st.WindowRounding = 3; st.FrameRounding = 2; st.GrabRounding = 2; st.ScrollbarRounding = 2; st.TabRounding = 2; st.ChildRounding = 2;
+    st.WindowBorderSize = 1; st.FrameBorderSize = 1; st.PopupBorderSize = 1; st.ChildBorderSize = 1;
+    st.WindowPadding = ImVec2(10, 8); st.FramePadding = ImVec2(8, 5); st.ItemSpacing = ImVec2(10, 7);
+    st.ItemInnerSpacing = ImVec2(8, 6); st.GrabMinSize = 20; st.ScrollbarSize = 26; st.IndentSpacing = 16;
+    st.SeparatorTextBorderSize = 1; st.SeparatorTextPadding = ImVec2(14, 3); st.SeparatorTextAlign = ImVec2(0.0f, 0.5f);
+    st.WindowTitleAlign = ImVec2(0.0f, 0.5f);
     st.ScaleAllSizes(sc);
-    // Proper Shaders identity: deep plum + coral/orange (sampled from the PROPER SHADERS logo)
     ImVec4* c = st.Colors;
-    const ImVec4 orange(0.93f, 0.50f, 0.27f, 1.0f), orangeHi(1.0f, 0.62f, 0.38f, 1.0f);
-    c[ImGuiCol_WindowBg]        = ImVec4(0.070f, 0.040f, 0.090f, 0.965f);
-    c[ImGuiCol_ChildBg]         = ImVec4(0, 0, 0, 0);
-    c[ImGuiCol_PopupBg]         = ImVec4(0.10f, 0.055f, 0.12f, 0.98f);
-    c[ImGuiCol_Border]          = ImVec4(0.93f, 0.50f, 0.27f, 0.35f);
-    c[ImGuiCol_TitleBg]         = ImVec4(0.12f, 0.05f, 0.11f, 1.00f);
-    c[ImGuiCol_TitleBgActive]   = ImVec4(0.19f, 0.07f, 0.16f, 1.00f);
-    c[ImGuiCol_FrameBg]         = ImVec4(0.16f, 0.085f, 0.17f, 1.00f);
-    c[ImGuiCol_FrameBgHovered]  = ImVec4(0.24f, 0.12f, 0.23f, 1.00f);
-    c[ImGuiCol_FrameBgActive]   = ImVec4(0.30f, 0.15f, 0.27f, 1.00f);
-    c[ImGuiCol_SliderGrab]      = orange;
-    c[ImGuiCol_SliderGrabActive]= orangeHi;
-    c[ImGuiCol_CheckMark]       = orangeHi;
-    c[ImGuiCol_Button]          = ImVec4(0.36f, 0.14f, 0.30f, 1.00f);
-    c[ImGuiCol_ButtonHovered]   = ImVec4(0.50f, 0.20f, 0.38f, 1.00f);
-    c[ImGuiCol_ButtonActive]    = ImVec4(0.93f, 0.50f, 0.27f, 1.00f);
-    c[ImGuiCol_Header]          = ImVec4(0.30f, 0.12f, 0.26f, 1.00f);
-    c[ImGuiCol_HeaderHovered]   = ImVec4(0.42f, 0.17f, 0.33f, 1.00f);
-    c[ImGuiCol_HeaderActive]    = ImVec4(0.52f, 0.22f, 0.38f, 1.00f);
-    c[ImGuiCol_Separator]       = ImVec4(0.93f, 0.50f, 0.27f, 0.45f);
-    c[ImGuiCol_ScrollbarBg]     = ImVec4(0.04f, 0.02f, 0.06f, 0.8f);
-    c[ImGuiCol_ScrollbarGrab]   = ImVec4(0.45f, 0.19f, 0.36f, 1.0f);
-    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.60f, 0.26f, 0.44f, 1.0f);
-    c[ImGuiCol_ResizeGrip]      = ImVec4(0.93f, 0.50f, 0.27f, 0.35f);
-    c[ImGuiCol_TextDisabled]    = ImVec4(0.58f, 0.50f, 0.60f, 1.0f);
+    const ImVec4 white(1.f, 1.f, 1.f, 1.f), whiteDim(0.86f, 0.86f, 0.86f, 1.f);
+    c[ImGuiCol_Text]            = ImVec4(0.94f, 0.94f, 0.94f, 1.f);
+    c[ImGuiCol_TextDisabled]    = ImVec4(0.55f, 0.55f, 0.57f, 1.f);
+    c[ImGuiCol_WindowBg]        = ImVec4(0.075f, 0.075f, 0.080f, 0.965f);
+    c[ImGuiCol_ChildBg]         = ImVec4(0.105f, 0.105f, 0.112f, 0.90f);
+    c[ImGuiCol_PopupBg]         = ImVec4(0.10f, 0.10f, 0.105f, 0.98f);
+    c[ImGuiCol_Border]          = ImVec4(1.f, 1.f, 1.f, 0.16f);
+    c[ImGuiCol_BorderShadow]    = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_TitleBg]         = ImVec4(0.13f, 0.13f, 0.14f, 1.f);
+    c[ImGuiCol_TitleBgActive]   = ImVec4(0.17f, 0.17f, 0.18f, 1.f);
+    c[ImGuiCol_TitleBgCollapsed]= ImVec4(0.13f, 0.13f, 0.14f, 1.f);
+    c[ImGuiCol_FrameBg]         = ImVec4(0.17f, 0.17f, 0.18f, 1.f);
+    c[ImGuiCol_FrameBgHovered]  = ImVec4(0.23f, 0.23f, 0.24f, 1.f);
+    c[ImGuiCol_FrameBgActive]   = ImVec4(0.28f, 0.28f, 0.30f, 1.f);
+    c[ImGuiCol_SliderGrab]      = whiteDim;
+    c[ImGuiCol_SliderGrabActive]= white;
+    c[ImGuiCol_CheckMark]       = white;
+    c[ImGuiCol_Button]          = ImVec4(0.20f, 0.20f, 0.21f, 1.f);
+    c[ImGuiCol_ButtonHovered]   = ImVec4(0.29f, 0.29f, 0.30f, 1.f);
+    c[ImGuiCol_ButtonActive]    = ImVec4(0.40f, 0.40f, 0.42f, 1.f);
+    c[ImGuiCol_Header]          = ImVec4(0.20f, 0.20f, 0.21f, 1.f);
+    c[ImGuiCol_HeaderHovered]   = ImVec4(0.28f, 0.28f, 0.29f, 1.f);
+    c[ImGuiCol_HeaderActive]    = ImVec4(0.36f, 0.36f, 0.37f, 1.f);
+    c[ImGuiCol_Separator]       = ImVec4(1.f, 1.f, 1.f, 0.22f);
+    c[ImGuiCol_ScrollbarBg]     = ImVec4(0.05f, 0.05f, 0.055f, 0.8f);
+    c[ImGuiCol_ScrollbarGrab]   = ImVec4(0.32f, 0.32f, 0.33f, 1.f);
+    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.45f, 0.45f, 0.46f, 1.f);
+    c[ImGuiCol_ScrollbarGrabActive]  = whiteDim;
+    c[ImGuiCol_ResizeGrip]      = ImVec4(1.f, 1.f, 1.f, 0.20f);
+    c[ImGuiCol_ResizeGripHovered] = ImVec4(1.f, 1.f, 1.f, 0.45f);
+    c[ImGuiCol_ResizeGripActive]  = white;
 }
 
 void BuildFonts(float px)
@@ -122,12 +130,9 @@ int g_testMode = 0; float g_testScroll = 0.f;
 bool g_worldTouched = false, g_userEdited = false, g_presetPressed = false, g_featDisabled = false;
 #define TOUCHED(world) do { if (ImGui::IsItemEdited()) { g_userEdited = true; g_dirty = true; if (world) g_worldTouched = true; } } while (0)
 
-bool SliderF(const char* l, float* v, float a, float b, const char* fmt = "%.2f", bool world = false)
-{
-    bool ch = ImGui::SliderFloat(l, v, a, b, fmt, ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp);
-    TOUCHED(world);
-    return ch;
-}
+bool RowSlider(const char* l, float* v, float a, float b, const char* fmt, bool world);
+// 1.5.0: every slider uses the Firestorm row layout (label left, slider, value right - the grab never covers the number)
+bool SliderF(const char* l, float* v, float a, float b, const char* fmt = "%.2f", bool world = false) { return RowSlider(l, v, a, b, fmt, world); }
 // Day / Night pair (the PC mod keeps separate values for day and night, blended by the game clock)
 void SliderDN(const char* l, DN* d, float a, float b, const char* fmt = "%.2f", bool world = false)
 {
@@ -143,7 +148,12 @@ bool Check(const char* l, bool* v, bool world = false)
 }
 bool Combo(const char* l, int* v, const char* const* items, int n, bool world = false)
 {
-    bool ch = ImGui::Combo(l, v, items, n);
+    ImGui::PushID(l);
+    float avail = ImGui::GetContentRegionAvail().x;
+    ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted(l); ImGui::SameLine(avail * 0.46f);
+    ImGui::SetNextItemWidth(avail * 0.50f);
+    bool ch = ImGui::Combo("##c", v, items, n);
+    ImGui::PopID();
     if (ch) { g_userEdited = true; g_dirty = true; if (world) g_worldTouched = true; }
     return ch;
 }
@@ -169,34 +179,238 @@ void FeatureEnd()
     g_featDisabled = false;
     ImGui::PopID();
 }
+// selected = white fill + black text (sidebar entries, page tabs, quality labels)
+bool WhiteButton(const char* l, bool sel, const ImVec2& sz = ImVec2(0, 0), bool alignLeft = false)
+{
+    if (sel) { ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1, 1, 1, 1)); ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 1));
+               ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.9f, 0.9f, 0.9f, 1)); ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 1)); }
+    if (alignLeft) ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.f, 0.5f));
+    bool r = ImGui::Button(l, sz);
+    if (alignLeft) ImGui::PopStyleVar();
+    if (sel) ImGui::PopStyleColor(4);
+    return r;
+}
+// "Label ........ [=====o====] value" (label left, slider right - like the Firestorm preferences)
+bool RowSlider(const char* l, float* v, float a, float b, const char* fmt = "%.2f", bool world = false);
+bool RowSlider(const char* l, float* v, float a, float b, const char* fmt, bool world)
+{
+    ImGui::PushID(l);
+    float avail = ImGui::GetContentRegionAvail().x;
+    ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted(l); ImGui::SameLine(avail * 0.46f);
+    ImGui::SetNextItemWidth(avail * 0.36f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y * 0.35f));
+    float y0 = ImGui::GetCursorPosY();
+    ImGui::SetCursorPosY(y0 + ImGui::GetStyle().FramePadding.y * 0.65f * 2.f * 0.5f);
+    bool ch = ImGui::SliderFloat("##v", v, a, b, "", ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp);
+    ImGui::PopStyleVar();
+    TOUCHED(world);
+    ImGui::SameLine(); ImGui::SetCursorPosY(y0); ImGui::AlignTextToFramePadding(); ImGui::Text(fmt, *v);
+    ImGui::PopID();
+    return ch;
+}
+bool RowCombo(const char* l, int* v, const char* const* items, int n, bool world = false)
+{
+    ImGui::PushID(l);
+    ImGui::TextUnformatted(l);
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.85f);
+    bool ch = ImGui::Combo("##c", v, items, n);
+    if (ch) { g_userEdited = true; g_dirty = true; if (world) g_worldTouched = true; }
+    ImGui::PopID();
+    return ch;
+}
 void Note(const char* t) { ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled)); ImGui::TextWrapped("%s", t); ImGui::PopStyleColor(); }
 
-void DrawFeatures(PSSettings& s, const PSUIStatus& st)
-{
-    // ---------------------------------------------------------------- presets (Low / Medium / High, like the PC mod)
-    ImGui::SeparatorText("PRESET");
-    {
-        float avail = ImGui::GetContentRegionAvail().x, sp = ImGui::GetStyle().ItemSpacing.x, bw = (avail - sp * 2.f) / 3.f;
-        for (int i = 0; i < 3; ++i)
-        {
-            bool sel = s.quality == i;
-            if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-            if (ImGui::Button(PS_QualityNames[i], ImVec2(bw, 0))) { PS_ApplyQuality(s, i); if (i >= 1) s.shadowRetry = true; g_presetPressed = true; g_dirty = true; g_worldTouched = true; }   // Medium / High also clear shadow safe mode
-            if (sel) ImGui::PopStyleColor();
-            if (i < 2) ImGui::SameLine();
-        }
-        Note("Low = fast and smooth: no shadows, bloom or sun rays. Medium / High = shadows, bloom and sun rays.");
-        if (s.quality == Q_CUSTOM) Note("Custom: you changed something after picking a preset.");
-    }
-    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.58f);
-    { int l = s.look; if (Combo("Look", &l, PS_LookNames, PS_LookCount)) { PS_ApplyLook(s, l); g_presetPressed = true; g_worldTouched = true; } }
-    Combo("Time of day", &s.timeOfDay, PS_TimeNames, PS_TimeCount);
-    Check("Adaptive quality", &s.adaptive);
-    { static const char* fps[] = { "30 FPS", "60 FPS" }; Combo("Target FPS", &s.targetFps, fps, 2); Note("Set this to the game's FPS limit."); }
-    if (st.fx && st.fx->adaptiveLevel > 0) ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1), "Adaptive level %d active (heavy effects reduced)", st.fx->adaptiveLevel);
+enum Page { P_GRAPHICS, P_LIGHTING, P_SKY, P_SHADOWS, P_HDR, P_WATER, P_IMAGE, P_AA, P_CAMERA, P_ARTISTIC, P_SHADERS, P_INTERFACE, P_STATUS, P_GUIDE, P_COUNT };
+const char* const kPageNames[P_COUNT] = { "Graphics", "Lighting", "Sky & Clouds", "Shadows", "HDR & Fog", "Water & Rain", "Post Process",
+                                          "Anti-aliasing", "Depth of Field", "Artistic", "GLSL Shaders", "Interface", "Status", "Feature Guide" };
+int  g_page = P_GRAPHICS;
+int  g_gfxTab = 0;                 // Graphics page tabs: General / Rendering / Post Process / Depth of Field
+int  g_presetSlot = 1;
+PSSettings g_snapshot;             // state when the menu opened (Cancel restores it)
+bool g_haveSnapshot = false;
+void DrawPage(int page, PSSettings& s, const PSUIStatus& st);
 
+// The Firestorm "Graphics > General" page: quality and speed slider, shader checkboxes left, sliders right, presets row
+void DrawGraphicsGeneral(PSSettings& s, const PSUIStatus& st)
+{
+    const float px = g_fontPx;
+    {
+        const char* q = s.quality == Q_CUSTOM ? "Custom" : PS_QualityMenuNames[PS_QualityToSlider(s.quality) < 0 ? 0 : PS_QualityToSlider(s.quality)];
+        ImGui::Text("Preset in use:  %s", q);
+    }
+    ImGui::Indent(px);
+    ImGui::TextUnformatted("Quality and speed:");
+    {
+        float avail = ImGui::GetContentRegionAvail().x;
+        ImVec2 tsP = ImGui::CalcTextSize("Performance"), tsQ = ImGui::CalcTextSize("Quality");
+        float sw = avail - tsP.x - tsQ.x - ImGui::GetStyle().ItemSpacing.x * 2.f;
+        ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("Performance"); ImGui::SameLine();
+        float x0 = ImGui::GetCursorPosX();
+        int qi = PS_QualityToSlider(s.quality); bool custom = qi < 0; if (custom) qi = 2;
+        static float qf = 2.f; static bool qActive = false;
+        if (!qActive) qf = (float)qi;
+        ImGui::SetNextItemWidth(sw);
+        ImGui::SliderFloat("##quality", &qf, 0.f, 3.f, custom ? "Custom" : "", ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp);   // float slider = small grab, snapped below
+        qActive = ImGui::IsItemActive();
+        int nq = (int)floorf(qf + 0.5f);
+        if (!qActive) qf = (float)nq;
+        if (ImGui::IsItemEdited() && (custom || nq != qi))
+        { PS_ApplyQuality(s, PS_SliderToQuality(nq)); if (nq >= 1) s.shadowRetry = true; g_presetPressed = true; g_dirty = true; g_worldTouched = true; }
+        ImGui::SameLine(); ImGui::TextUnformatted("Quality");
+        // tick labels under the slider: Low Mid High Ultra
+        float grab = ImGui::GetStyle().GrabMinSize, y = ImGui::GetCursorPosY();
+        for (int i = 0; i < 4; ++i)
+        {
+            const char* l = PS_QualityMenuNames[i]; float tw = ImGui::CalcTextSize(l).x;
+            float cx = x0 + grab * 0.5f + (sw - grab) * (i / 3.f);
+            ImGui::SetCursorPos(ImVec2(cx - tw * 0.5f, y));
+            if (!custom && i == PS_QualityToSlider(s.quality)) ImGui::TextUnformatted(l); else ImGui::TextDisabled("%s", l);
+            if (i < 3) ImGui::SameLine();
+        }
+    }
+    ImGui::Unindent(px);
+    ImGui::Spacing();
+
+    if (ImGui::BeginTable("##gfx2", 2, ImGuiTableFlags_SizingStretchSame))
+    {
+        ImGui::TableNextColumn();
+        Check("Enable Proper GFX", &s.enabled, true);
+        Check("Deferred lighting", &s.deferredOn);
+        ImGui::TextUnformatted("Shaders:");
+        ImGui::Indent(px * 0.6f);
+        Check("Ambient occlusion", &s.aoOn);
+        Check("Skylight", &s.skylightOn);
+        Check("Tricolored ambient", &s.ambientOn);
+        Check("Screen space reflections", &s.ssrOn);
+        Check("Volumetric fog & godrays", &s.volFogOn);
+        Check("Volumetric clouds", &s.cloudsOn);
+        Check("PBR sky", &s.pbrSkyOn);
+        Check("Contact shadows", &s.contactOn);
+        Check("Bloom", &s.bloom);
+        Check("Sun rays", &s.sunRays);
+        Check("Lens flare", &s.lensFlare);
+        Check("Auto exposure", &s.autoExp);
+        Check("Rain puddles & ripples", &s.rainSurfOn);
+        Check("Volumetric headlights", &s.headlightsOn);
+        ImGui::Unindent(px * 0.6f);
+        { int sh = !s.shadows ? 0 : (s.shadowCascades >= 4 ? (s.shadowPcss ? 3 : 2) : 1);
+          static const char* shn[] = { "None", "Sun, 2 cascades", "Sun, 4 cascades", "Sun, 4 cascades + PCSS" };
+          if (RowCombo("Shadows:", &sh, shn, 4)) { bool was = s.shadows; s.shadows = sh > 0; if (!was && s.shadows) s.shadowRetry = true; s.shadowCascades = sh >= 2 ? 4 : 2; s.shadowPcss = sh == 3 || (sh == 1 && s.shadowPcss); } }
+        { int ao = s.aoMode; if (RowCombo("Ambient occlusion:", &ao, PS_AoModeNames, PS_AoModeCount)) s.aoMode = ao; }
+        { int aa = s.taaOn ? 2 : (s.fxaa ? 1 : 0); static const char* an[] = { "None", "FXAA", "TAA + FXAA" };
+          if (RowCombo("Anti-aliasing:", &aa, an, 3)) { s.fxaa = aa >= 1; s.taaOn = aa == 2; } }
+        { int tm = s.tonemap; if (RowCombo("Tonemapping:", &tm, PS_TonemapNames, PS_TonemapCount)) s.tonemap = tm; }
+
+        ImGui::TableNextColumn();
+        RowSlider("Exposure (EV)", &s.exposure.day, -3.f, 3.f); 
+        RowSlider("Bloom", &s.bloomIntensity.day, 0.f, 1.5f);
+        RowSlider("AO intensity", &s.aoIntensity, 0.f, 2.f);
+        RowSlider("AO radius", &s.aoRadius, 0.2f, 4.f);
+        RowSlider("SSR strength", &s.ssrStrength, 0.f, 1.f);
+        RowSlider("Fog density", &s.volFogDensity.day, 0.f, 2.f);
+        RowSlider("Godrays", &s.volGodrays, 0.f, 2.f);
+        RowSlider("Shadow distance", &s.shadowDist, 25.f, 160.f, "%.0f m");
+        RowSlider("Shadow strength", &s.shadowStrength, 0.f, 1.f);
+        RowSlider("Contrast", &s.contrast.day, 0.5f, 1.6f);
+        RowSlider("Saturation", &s.saturation.day, 0.f, 2.f);
+        RowSlider("Sharpen (CAS)", &s.casStrength, 0.f, 1.f);
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Look and time:");
+        { int l = s.look; if (RowCombo("Look", &l, PS_LookNames, PS_LookCount)) { PS_ApplyLook(s, l); g_presetPressed = true; g_worldTouched = true; } }
+        RowCombo("Time of day", &s.timeOfDay, PS_TimeNames, PS_TimeCount);
+        Check("Adaptive quality", &s.adaptive);
+        { static const char* fps[] = { "30 FPS", "60 FPS" }; RowCombo("Target FPS (game limit)", &s.targetFps, fps, 2); }
+        if (st.fx && st.fx->adaptiveLevel > 0) ImGui::TextDisabled("Adaptive level %d active", st.fx->adaptiveLevel);
+        ImGui::EndTable();
+    }
+
+    // Presets: Save / Load / Delete (files/ProperGFX/presets/preset<slot>.ini)
+    ImGui::Spacing(); ImGui::Separator();
+    {
+        const char* dir = st.dir ? st.dir : "";
+        char cur[48]; snprintf(cur, sizeof(cur), "Slot %d%s", g_presetSlot, PS_PresetExists(dir, g_presetSlot) ? "" : " (empty)");
+        ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("Presets:"); ImGui::SameLine();
+        ImGui::SetNextItemWidth(px * 7.f);
+        if (ImGui::BeginCombo("##slot", cur))
+        {
+            for (int i = 1; i <= 8; ++i)
+            {
+                char b[48]; snprintf(b, sizeof(b), "Slot %d%s", i, PS_PresetExists(dir, i) ? "" : " (empty)");
+                if (ImGui::Selectable(b, i == g_presetSlot)) g_presetSlot = i;
+            }
+            ImGui::EndCombo();
+        }
+        float bw = px * 4.5f;
+        ImGui::SameLine(); if (ImGui::Button("Save", ImVec2(bw, 0))) PS_PresetSave(s, dir, g_presetSlot);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!PS_PresetExists(dir, g_presetSlot));
+        if (ImGui::Button("Load", ImVec2(bw, 0))) { if (PS_PresetLoad(s, dir, g_presetSlot)) { g_presetPressed = true; g_dirty = true; g_worldTouched = true; } }
+        ImGui::SameLine(); if (ImGui::Button("Delete", ImVec2(bw, 0))) PS_PresetDelete(dir, g_presetSlot);
+        ImGui::EndDisabled();
+    }
+}
+
+// Lighting page: everything the deferred pass adds (AO / GI, skylight, ambient, contact shadows, SSR, volumetrics, headlights)
+void DrawLighting(PSSettings& s)
+{
+    ImGui::SeparatorText("DEFERRED LIGHTING");
+    Check("Deferred renderer (master switch)", &s.deferredOn);
+    Check("Half resolution AO / volumetrics (faster)", &s.deferredHalf);
+    Note("Runs right after the 3D world is drawn, on the game's scene target with its depth: the HUD, radar, main menu, pause menu and this button are never affected. Needs OpenGL ES 3.");
+    if (!s.deferredOn) ImGui::BeginDisabled();
+    if (FeatureBegin("AmbientOcclusion - SSAO / HBAO / SSGI", &s.aoOn))
+    {
+        Combo("Mode", &s.aoMode, PS_AoModeNames, PS_AoModeCount);
+        SliderF("Radius (m)", &s.aoRadius, 0.2f, 4.f);
+        SliderF("Intensity", &s.aoIntensity, 0.f, 2.f);
+        if (s.aoMode == AO_SSGI) SliderF("Indirect light (GI)", &s.giStrength, 0.f, 2.f);
+        FeatureEnd();
+    }
+    if (FeatureBegin("Skylight - sky occlusion", &s.skylightOn)) { SliderF("Strength", &s.skylightStrength, 0.f, 1.f); FeatureEnd(); }
+    if (FeatureBegin("AmbientLighting - tricolored ambient", &s.ambientOn)) { SliderF("Strength", &s.ambientStrength, 0.f, 1.f); Note("Sky / horizon / ground colours picked by the surface normal rebuilt from depth."); FeatureEnd(); }
+    if (FeatureBegin("ContactShadows", &s.contactOn)) { SliderF("Length (m)", &s.contactLength, 0.1f, 3.f); SliderF("Strength", &s.contactStrength, 0.f, 1.f); FeatureEnd(); }
+    if (FeatureBegin("SSR - screen space reflections", &s.ssrOn))
+    {
+        SliderF("Strength", &s.ssrStrength, 0.f, 1.f);
+        SliderF("Dry surfaces", &s.ssrDry, 0.f, 1.f);
+        Note("Wet floors and puddles get full reflections; dry roads get the 'Dry surfaces' amount.");
+        FeatureEnd();
+    }
+    if (FeatureBegin("VolumetricFog - height fog with godrays", &s.volFogOn))
+    {
+        SliderDN("Density", &s.volFogDensity, 0.f, 2.f);
+        SliderF("Height falloff", &s.volFogFalloff, 0.02f, 2.f);
+        SliderF("Godrays (sun shadow map)", &s.volGodrays, 0.f, 2.f);
+        FeatureEnd();
+    }
+    if (FeatureBegin("VolumetricHeadlights (experimental)", &s.headlightsOn)) { SliderF("Strength", &s.headlightStrength, 0.f, 2.f); Note("Light cones of the car you drive, at night."); FeatureEnd(); }
+    if (!s.deferredOn) ImGui::EndDisabled();
+}
+
+void DrawSky(PSSettings& s)
+{
+    ImGui::SeparatorText("SKY & CLOUDS");
+    if (!s.deferredOn) { Note("Needs Lighting > Deferred renderer."); ImGui::BeginDisabled(); }
+    if (FeatureBegin("VolumetricClouds", &s.cloudsOn))
+    {
+        SliderF("Coverage", &s.cloudCoverage, 0.f, 1.f);
+        SliderF("Density", &s.cloudDensity, 0.f, 2.f);
+        SliderF("Wind speed", &s.cloudSpeed, 0.f, 4.f);
+        FeatureEnd();
+    }
+    if (FeatureBegin("PBRSky - physical sky with sky blend", &s.pbrSkyOn)) { SliderF("Blend with the game's sky", &s.pbrSkyBlend, 0.f, 1.f); FeatureEnd(); }
+    if (FeatureBegin("Aurora borealis", &s.auroraOn)) { SliderF("Strength", &s.auroraStrength, 0.f, 1.f); FeatureEnd(); }
+    if (!s.deferredOn) ImGui::EndDisabled();
+}
+
+void DrawFeatures(int page, PSSettings& s, const PSUIStatus& st)
+{
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
+    if (page == P_LIGHTING) DrawLighting(s);
+    if (page == P_SKY) DrawSky(s);
+    if (page == P_HDR) {
     // ---------------------------------------------------------------- lighting & atmosphere
-    ImGui::SeparatorText("LIGHTING & ATMOSPHERE");
+    ImGui::SeparatorText("HDR, EXPOSURE & FOG");
     if (FeatureBegin("SimulateHDR - HDR & tone mapping", &s.hdr))
     {
         Combo("Tonemapper", &s.tonemap, PS_TonemapNames, PS_TonemapCount);
@@ -223,6 +437,9 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         Note("Darkens the lit world while it rains (CWeather::WetRoads).");
         FeatureEnd();
     }
+    }
+    if (page == P_SHADOWS) {
+    ImGui::SeparatorText("SHADOWS");
     const bool shPrev = s.shadows;
     const bool shOpen = FeatureBegin("DynamicShadows - sun shadows (game clock + timecyc.dat)", &s.shadows);
     if (!shPrev && s.shadows) s.shadowRetry = true;      // switching shadows on also clears safe mode
@@ -233,9 +450,13 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         SliderF("Strength", &s.shadowStrength, 0.f, 1.f);
         { static const char* res[] = { "512", "1024", "2048" }; Combo("Resolution", &s.shadowRes, res, 3); }
         SliderF("Distance (m)", &s.shadowDist, 25.f, 160.f, "%.0f");
-        { int e = s.shadowEvery; if (ImGui::SliderInt("Update every N frames", &e, 1, 10, "%d", ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp)) { s.shadowEvery = e; g_userEdited = true; g_dirty = true; } }
+        { float e = (float)s.shadowEvery; if (SliderF("Update every N frames", &e, 1.f, 10.f, "%.0f")) s.shadowEvery = (int)floorf(e + 0.5f); }
         SliderF("Softness", &s.shadowSoft, 0.3f, 3.f);
         SliderF("Bias", &s.shadowBias, 0.3f, 3.f);
+        { int ci = s.shadowCascades >= 4 ? 1 : 0; static const char* cn[] = { "2 cascades", "4 cascades" };
+          if (Combo("Cascades", &ci, cn, 2)) s.shadowCascades = ci ? 4 : 2; }
+        Check("PCSS (contact-hardening soft shadows)", &s.shadowPcss);
+        Check("Soft shadow mask (gaussian blur)", &s.shadowBlurOn);
         SliderF("Fade below sun elevation", &s.shadowMinSun, 0.f, 0.4f);
         SliderF("Sun smoothing", &s.sunSmoothing, 0.005f, 1.f, "%.3f");
         Check("Show shadow map (debug)", &s.shadowDebug);
@@ -244,11 +465,11 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         Check("Crash guard (safe mode after a failed launch)", &s.shadowGuard);
         SliderF("Shadow tint amount", &s.shadowTint, 0.f, 1.f);
         SliderF("Tint red", &s.shadowTintR, 0.f, 1.f); SliderF("Tint green", &s.shadowTintG, 0.f, 1.f); SliderF("Tint blue", &s.shadowTintB, 0.f, 1.f);
-        Note("Deferred (like ZyZGFX64): casters -> 2 cascades (shadow_depth.glsl), then shadow_mask.glsl rebuilds every pixel's position from the scene depth and darkens it (shadow_apply.glsl). Game shaders are not touched.");
+        Note("Deferred (like ZyZGFX64): casters -> 2 or 4 cascades (shadow_depth.glsl), then shadow_mask.glsl rebuilds every pixel's position from the scene depth and darkens it (shadow_apply.glsl). Game shaders are not touched.");
         Note("Trees cast their leaves (cut out with the game's alpha test), LOD stand-ins do not cast near you, and only static buildings are remembered out of view - moved / streamed-out objects leave no ghost shadow.");
         Note("Sun source Auto = the game's time-cycle sun vector (follows the game clock). Strength can follow the Shdw column of timecyc.dat.");
         Note("Buildings, roads, terrain, trees and vehicles cast; everything on screen receives (pedestrians too). Applies right away, no restart.");
-        if (st.shadow)
+        if (st.shadow && ImGui::CollapsingHeader("Shadow diagnostics"))
         {
             const PSShadowStats& sh = *st.shadow;
             ImGui::TextWrapped("Status: %s", sh.note[0] ? sh.note : (sh.ready ? "ok" : "waiting for the first frame"));
@@ -288,6 +509,9 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         }
         FeatureEnd();
     }
+    }
+    if (page == P_WATER) {
+    ImGui::SeparatorText("SURFACES, WATER & RAIN");
     if (FeatureBegin("SurfaceShading - specular & reflections", &s.surfaceOn, true))
     {
         SliderF("Specular", &s.specularMul, 0.f, 3.f, "%.2f", true);
@@ -306,6 +530,16 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         FeatureEnd();
     }
 
+    if (FeatureBegin("WorldRain - puddles & ripples", &s.rainSurfOn))
+    {
+        SliderF("Puddles", &s.puddles, 0.f, 1.f); SliderF("Ripples", &s.ripples, 0.f, 1.f);
+        Note("Deferred pass: flat upward surfaces collect puddles with rain ripples while it rains (CWeather::WetRoads). The SSR pass reflects in them.");
+        FeatureEnd();
+    }
+    if (FeatureBegin("RainFall - falling rain streaks", &s.rainFallOn)) { SliderF("Amount", &s.rainFall, 0.f, 1.f); Note("Follows CWeather::Rain."); FeatureEnd(); }
+    if (FeatureBegin("WaterCaustics - sea floor caustics", &s.causticsOn)) { SliderF("Strength", &s.causticsStrength, 0.f, 1.f); FeatureEnd(); }
+    }
+    if (page == P_IMAGE) {
     // ---------------------------------------------------------------- image
     ImGui::SeparatorText("IMAGE");
     if (FeatureBegin("Bloom", &s.bloom))
@@ -382,13 +616,19 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         FeatureEnd();
     }
 
+    }
+    if (page == P_AA) {
     // ---------------------------------------------------------------- anti-aliasing & sharpen
-    ImGui::SeparatorText("ANTI-ALIASING & SHARPEN");
-    if (FeatureBegin("AntiAliasing - FXAA (SMAA is not possible)", &s.fxaa)) { SliderF("Strength", &s.fxaaStrength, 0.f, 1.f); FeatureEnd(); }
+    ImGui::SeparatorText("ANTI-ALIASING, UPSCALING & SHARPEN");
+    if (FeatureBegin("AntiAliasing - FXAA", &s.fxaa)) { SliderF("Strength", &s.fxaaStrength, 0.f, 1.f); FeatureEnd(); }
+    if (FeatureBegin("TAA - temporal anti-aliasing", &s.taaOn)) { SliderF("History blend", &s.taaBlend, 0.5f, 0.97f); Note("Reprojects last frame with the scene depth and clamps it to the neighbourhood (no ghosting on moving cars). Use together with FXAA."); FeatureEnd(); }
+    if (FeatureBegin("FSR - FidelityFX Super Resolution 1", &s.fsrOn)) { SliderF("Sharpness", &s.fsrSharpness, 0.f, 1.f); Note("EASU-style edge reconstruction + RCAS sharpening on the game's own render resolution. Lower the game's resolution setting and turn this on for the FSR look."); FeatureEnd(); }
     if (FeatureBegin("Sharpen - AMD CAS", &s.cas)) { SliderF("Strength", &s.casStrength, 0.f, 1.f); FeatureEnd(); }
+    }
 
+    if (page == P_CAMERA) {
     // ---------------------------------------------------------------- camera
-    ImGui::SeparatorText("CAMERA");
+    ImGui::SeparatorText("CAMERA & DEPTH OF FIELD");
     if (FeatureBegin("ImprovedZFighting - near clip", &s.zfix))
     {
         SliderF("Near clip", &s.nearClip, 0.05f, 2.f);
@@ -404,10 +644,12 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         SliderF("Bokeh (bright highlights)", &s.dofBokeh, 0.f, 2.f);
         SliderF("Blur radius", &s.dofRadius, 0.3f, 3.f);
         SliderF("Underwater blur", &s.dofUnderwater, 0.f, 1.f);
-        Note("The game has no readable depth buffer: focus is a screen band (TiltShift) or a circle (CenterFocus). Underwater blur uses UnderWaterness.");
+        Note("TiltShift = screen band, CenterFocus = circle, Adaptive = real depth of field from the scene depth with auto focus on the screen centre (needs the deferred renderer). Underwater blur uses UnderWaterness.");
         FeatureEnd();
     }
 
+    }
+    if (page == P_ARTISTIC) {
     // ---------------------------------------------------------------- artistic
     ImGui::SeparatorText("ARTISTIC");
     if (FeatureBegin("CelShading - anime", &s.cel))
@@ -428,9 +670,10 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
     if (FeatureBegin("FilmGrain", &s.grain)) { SliderF("Strength", &s.grainStrength, 0.f, 1.f); FeatureEnd(); }
     if (FeatureBegin("ChromaticAberration", &s.chromatic)) { SliderF("Strength", &s.chromaticStrength, 0.f, 1.f); FeatureEnd(); }
 
+    }
+    if (page == P_GUIDE) {
     // ---------------------------------------------------------------- feature guide
     ImGui::SeparatorText("FEATURE GUIDE");
-    if (ImGui::CollapsingHeader("What each effect does (and what this build really has)"))
     {
         for (int i = 0; i < kGuideCount; ++i)
         {
@@ -451,7 +694,7 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
     }
 
     // ---------------------------------------------------------------- not possible on mobile
-    ImGui::SeparatorText("NOT AVAILABLE ON MOBILE");
+    ImGui::SeparatorText("PROPER SHADERS (PC) FEATURE LIST");
     if (ImGui::CollapsingHeader("Proper Shaders (PC) feature list"))
     {
         ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.5f, 1), "[OK]"); ImGui::SameLine(); ImGui::TextUnformatted("implemented");
@@ -468,9 +711,10 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         }
     }
 
+    }
+    if (page == P_STATUS) {
     // ---------------------------------------------------------------- status & menu
     ImGui::SeparatorText("STATUS");
-    if (ImGui::CollapsingHeader("Renderer & performance"))
     {
         ImGui::TextWrapped("Renderer: %s", st.fxStatus);
         ImGui::TextWrapped("Game: %s", st.gameInfo);
@@ -483,8 +727,26 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
             ImGui::Text("Shader variants cached: %d", st.fx->variants);
             ImGui::Text("Full-res texture fetches/pixel: ~%.0f", st.fx->fullResFetches);
         }
+        if (st.deferred)
+        {
+            const PSDeferredStats& d = *st.deferred;
+            ImGui::SeparatorText("DEFERRED RENDERER");
+            ImGui::Text("GLES 3: %s   ready: %s%s   frames %u (no camera %u)   passes %d", d.es3 ? "yes" : "NO", d.ready ? "yes" : "no", d.failed ? "  FAILED" : "", d.frames, d.noCamera, d.passes);
+            ImGui::Text("AO %s  volumetrics %s  composite %s  DoF CoC %s  TAA %s  FSR %s", d.ao ? "on" : "-", d.vol ? "on" : "-", d.composite ? "on" : "-", d.coc ? "on" : "-", d.taa ? "on" : "-", d.fsr ? "on" : "-");
+            if (d.note[0]) ImGui::TextWrapped("%s", d.note);
+        }
+        if (st.scene)
+        {
+            const PSSceneStats& sc = *st.scene;
+            ImGui::SeparatorText("RENDER QUEUE");
+            if (sc.rqReady) ImGui::Text("Command slot %d%s   after-scene posted %u / ran %u   post posted %u / ran %u", sc.rqSlot, sc.chained ? " (chained)" : "", sc.posted[2], sc.ran[2], sc.posted[4], sc.ran[4]);
+            else ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1), "%s", sc.rqSymbols ? (sc.rqBadLayout ? "layout not recognised" : "waiting") : "symbols missing");
+            if (sc.depthTex) ImGui::Text("Scene target: FBO %d %dx%d, depth texture %u (%d-bit)", sc.sceneFbo, sc.w, sc.h, sc.depthTex, sc.depthBits);
+        }
     }
-    if (ImGui::CollapsingHeader("GLSL SHADERS (built into libProperGFX64.so)"))
+    }
+    if (page == P_SHADERS) {
+    ImGui::SeparatorText("GLSL SHADERS (built into libProperGFX64.so)");
     {
         Check("Custom pass (custom.glsl: rain & night mood, runs last)", &s.glslCustom);
         static const char* pn[8] = { "Wet-road blue tint", "Night darkening", "Contrast", "Warm / cold",
@@ -498,13 +760,15 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         Note("The .glsl shaders (shaders/fragment + shaders/vertex in the source) are compiled into the .so - nothing is read from the files folder. "
              "Uniforms (same as SAShaderL): ShaderFlags, SunVector, Time, GameTimeSeconds, UnderWaterness, RoadsWetness, FarClipDist, EntityModel.");
     }
-    if (ImGui::CollapsingHeader("Menu & floating button"))
+    }
+    if (page == P_INTERFACE) {
+    ImGui::SeparatorText("MENU & FLOATING BUTTON");
     {
         Check("Show floating button", &s.showButton);
         Check("Shrink to a dot when idle", &s.buttonCollapse);
         float px = s.buttonX * 100.f, py = s.buttonY * 100.f;
-        if (ImGui::SliderFloat("X position", &px, 0.f, 100.f, "%.1f%%", ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp)) { s.buttonX = px / 100.f; g_dirty = true; }
-        if (ImGui::SliderFloat("Y position", &py, 0.f, 100.f, "%.1f%%", ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp)) { s.buttonY = py / 100.f; g_dirty = true; }
+        if (SliderF("X position", &px, 0.f, 100.f, "%.1f%%")) s.buttonX = px / 100.f;
+        if (SliderF("Y position", &py, 0.f, 100.f, "%.1f%%")) s.buttonY = py / 100.f;
         SliderF("Button size", &s.buttonScale, 0.5f, 2.5f, "%.2fx");
         SliderF("Button opacity", &s.buttonOpacity, PS_BUTTON_MIN_OPACITY, 1.f, s.buttonOpacity < PS_BUTTON_HIDDEN_BELOW ? "0 (hidden)" : "%.2f");
         if (s.buttonOpacity < PS_BUTTON_HIDDEN_BELOW) s.buttonOpacity = 0.f;      // snap: no faint label at "almost 0"
@@ -513,24 +777,45 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         Check("World shader patches (restart)", &s.worldPatch);
         Note("Drag the floating button anywhere; tap it to open this menu.");
     }
+    }
     ImGui::PopItemWidth();
 }
 
-// floating button (drawn on the foreground list, hit-tested by hand so it works with raw touch input)
+// 1.5.0 Proper GFX symbol, vector only (no texture, no text): a gear ring with 8 teeth around a half-filled circle
+// (the "light / shadow" half disc = shader settings). Drawn with ImDrawList so it stays sharp at every size.
+void DrawModIcon(ImDrawList* dl, ImVec2 c, float r, ImU32 col, ImU32 cut)
+{
+    const int teeth = 8; const float PI = 3.14159265f;
+    const float rIn = r * 0.80f, rOut = r;
+    // gear: solid disc + 8 convex teeth (no triangle fan -> no anti-aliasing seams)
+    dl->AddCircleFilled(c, rIn, col, 40);
+    for (int i = 0; i < teeth; ++i)
+    {
+        float a0 = (i / (float)teeth) * 2.f * PI, w = 2.f * PI / teeth;
+        float t[4] = { a0 - w * 0.24f, a0 - w * 0.15f, a0 + w * 0.15f, a0 + w * 0.24f };
+        float rr[4] = { rIn * 0.96f, rOut, rOut, rIn * 0.96f };
+        ImVec2 q[4];
+        for (int k = 0; k < 4; ++k) q[k] = ImVec2(c.x + cosf(t[k]) * rr[k], c.y + sinf(t[k]) * rr[k]);
+        dl->AddConvexPolyFilled(q, 4, col);
+    }
+    // hollow the ring
+    dl->AddCircleFilled(c, r * 0.60f, cut, 32);
+    // half-filled disc (left half solid, right half outlined): the lit / shaded symbol
+    const float rd = r * 0.40f;
+    dl->PathArcTo(c, rd, PI * 0.5f, PI * 1.5f, 20); dl->PathFillConvex(col);
+    dl->AddCircle(c, rd, col, 28, fmaxf(1.2f, r * 0.08f));
+}
+
+// floating button: a rounded box with the vector icon (drawn on the foreground list, hit-tested by hand so it works with raw touch input)
 void DrawButton(PSSettings& s, int W, int H)
 {
     ImGuiIO& io = ImGui::GetIO();
     ImDrawList* dl = ImGui::GetForegroundDrawList();
-    ImFont* font = ImGui::GetFont();
-    float fs = g_fontPx * 0.78f * s.buttonScale;
     g_idle += io.DeltaTime;
-    // idle -> shrink to a small dot so the button can never sit on top of another mod's label/button
+    // idle -> shrink a little so the button never sits on top of another mod's label / button
     bool collapsed = s.buttonCollapse && !g_menuOpen && !g_pressing && g_idle > 4.f;
-    const char* label = collapsed ? "GFX" : "Proper GFX Settings";
-    ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0.f, label);
-    float padX = fs * 0.9f, padY = fs * 0.55f;
-    ImVec2 sz(ts.x + padX * 2.f, ts.y + padY * 2.f);
-    if (collapsed) { float d = fmaxf(ts.x, ts.y) + fs * 1.1f; sz = ImVec2(d, d); padX = (sz.x - ts.x) * 0.5f; padY = (sz.y - ts.y) * 0.5f; }
+    float side = g_fontPx * 2.3f * s.buttonScale * (collapsed ? 0.72f : 1.0f);
+    ImVec2 sz(side, side);
     ImVec2 c(s.buttonX * W, s.buttonY * H);
     ImVec2 mn(c.x - sz.x * 0.5f, c.y - sz.y * 0.5f);
     if (mn.x < 0) mn.x = 0; if (mn.y < 0) mn.y = 0;
@@ -564,25 +849,19 @@ void DrawButton(PSSettings& s, int W, int H)
         else g_dirty = true;
         g_pressing = false; g_dragging = false; g_idle = 0.f;
     }
-    float a = s.buttonOpacity < PS_BUTTON_HIDDEN_BELOW ? 0.f : s.buttonOpacity;   // 0 (or an old 0.05 from 1.3) = nothing drawn at all
+    float a = s.buttonOpacity < PS_BUTTON_HIDDEN_BELOW ? 0.f : s.buttonOpacity;   // 0 = nothing drawn at all (the button still works)
     bool active = g_pressing || g_menuOpen;
-    ImU32 bg = ImGui::GetColorU32(ImVec4(0.17f, 0.065f, 0.15f, a * (active ? 0.95f : (collapsed ? 0.55f : 0.78f))));
-    ImU32 bd = ImGui::GetColorU32(ImVec4(0.95f, 0.52f, 0.28f, a * (g_dragging ? 1.0f : (collapsed ? 0.65f : 0.85f))));
-    // 64-bit: the label scales with the opacity too, so Opacity 0 = label, fill AND outline fully transparent (the button still works where it is)
-    ImU32 tx = ImGui::GetColorU32(ImVec4(1, 1, 1, a * (collapsed ? 0.85f : 1.0f)));
-    if (a <= 0.001f) { /* nothing drawn */ }
-    else if (collapsed)
+    if (a > 0.001f)
     {
+        const float rounding = side * 0.18f, bw = fmaxf(1.5f, side * 0.045f);
+        ImU32 bg  = ImGui::GetColorU32(active ? ImVec4(1.f, 1.f, 1.f, a * 0.95f) : ImVec4(0.06f, 0.06f, 0.065f, a * (collapsed ? 0.55f : 0.80f)));
+        ImU32 bd  = ImGui::GetColorU32(ImVec4(1.f, 1.f, 1.f, a * (g_dragging ? 1.0f : (collapsed ? 0.55f : 0.85f))));
+        ImU32 ic  = ImGui::GetColorU32(active ? ImVec4(0.f, 0.f, 0.f, a) : ImVec4(1.f, 1.f, 1.f, a * (collapsed ? 0.8f : 1.f)));
+        dl->AddRectFilled(mn, mx, bg, rounding);
+        dl->AddRect(mn, mx, bd, rounding, 0, bw);
         ImVec2 cc((mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f);
-        dl->AddCircleFilled(cc, sz.x * 0.5f, bg, 24);
-        dl->AddCircle(cc, sz.x * 0.5f, bd, 24, fmaxf(1.5f, fs * 0.07f));
+        DrawModIcon(dl, cc, side * 0.34f, ic, bg);
     }
-    else
-    {
-        dl->AddRectFilled(mn, mx, bg, sz.y * 0.5f);
-        dl->AddRect(mn, mx, bd, sz.y * 0.5f, 0, fmaxf(1.5f, fs * 0.07f));
-    }
-    if (a > 0.001f) dl->AddText(font, fs, ImVec2(mn.x + padX, mn.y + padY), tx, label);
 
     // exact hit area (+3 px): nothing outside the drawn button is ever swallowed
     std::lock_guard<std::mutex> l(g_mx);
@@ -592,7 +871,7 @@ void DrawButton(PSSettings& s, int W, int H)
 } // namespace
 
 bool UI_TestButtonRect(float out[4]) { std::lock_guard<std::mutex> l(g_mx); if (!g_rects[0].valid) return false; out[0] = g_rects[0].x0; out[1] = g_rects[0].y0; out[2] = g_rects[0].x1; out[3] = g_rects[0].y1; return true; }
-void UI_TestOpen(bool o, int tab) { g_menuOpen = o; g_testMode = tab >= 1 ? 1 : 0; g_testScroll = tab >= 1 ? (tab - 1) * 560.f : 0.f; }
+void UI_TestOpen(bool o, int tab) { g_menuOpen = o; g_page = (tab >= 0 && tab < P_COUNT) ? tab : 0; g_testMode = tab >= 1 ? 1 : 0; g_testScroll = 0.f; }
 void UI_SetIniPath(const char* p) { snprintf(g_ini, sizeof(g_ini), "%s", p ? p : ""); }
 bool UI_MenuOpen() { return g_menuOpen; }
 static std::atomic<bool> g_openRequest{false};
@@ -699,54 +978,79 @@ void UI_Render(PSSettings& s, int W, int H, float dt, const PSUIStatus& st, bool
     ImGui::NewFrame();
     g_worldTouched = false; g_userEdited = false; g_presetPressed = false;
 
+    if (g_menuOpen && !g_haveSnapshot) { g_snapshot = s; g_haveSnapshot = true; }
     if (g_menuOpen)
     {
-        float ww = fminf(W * 0.62f, px * 36.f), wh = H * 0.80f;
-        ImGui::SetNextWindowPos(ImVec2(W * 0.02f, H * 0.05f), ImGuiCond_FirstUseEver);
+        // centred, ends above the bottom edge so the default button position (bottom centre) stays reachable to close the menu
+        float ww = fminf(W * 0.94f, px * 52.f), wh = fminf(H * 0.86f, px * 34.f);
+        ImGui::SetNextWindowPos(ImVec2((W - ww) * 0.5f, fmaxf(H * 0.02f, (H * 0.88f - wh) * 0.5f)), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(ww, wh), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSizeConstraints(ImVec2(px * 16.f, px * 12.f), ImVec2((float)W, (float)H));
-        bool open = true;
-        if (ImGui::Begin("Proper GFX Settings", &open, ImGuiWindowFlags_NoSavedSettings))
+        ImGui::SetNextWindowSizeConstraints(ImVec2(px * 24.f, px * 14.f), ImVec2((float)W, (float)H));
+        bool open = true, cancel = false;
+        if (ImGui::Begin("Proper GFX Settings  -  " PS_VERSION "###pgfx", &open, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar))
         {
-            // branded header
-            {
-                ImDrawList* dl = ImGui::GetWindowDrawList();
-                ImVec2 p = ImGui::GetCursorScreenPos();
-                float fs = px * 1.25f;
-                dl->AddText(ImGui::GetFont(), fs, p, ImGui::GetColorU32(ImVec4(0.96f, 0.55f, 0.30f, 1)), "PROPER GFX");
-                ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0, "PROPER GFX ");
-                dl->AddText(ImGui::GetFont(), px * 0.8f, ImVec2(p.x + ts.x, p.y + fs * 0.28f), ImGui::GetColorU32(ImVec4(0.75f, 0.55f, 0.8f, 1)), "MOBILE " PS_VERSION "  -  GTA SA");
-                ImGui::Dummy(ImVec2(0, fs + 2.f));
+            const float footer = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
+            // left sidebar: categories (selected = white fill, black text)
+            float sideW = 0.f;                                   // widest category label + paddings + scrollbar: no clipped names
+            for (int i = 0; i < P_COUNT; ++i) sideW = fmaxf(sideW, ImGui::CalcTextSize(kPageNames[i]).x);
+            { const ImGuiStyle& st = ImGui::GetStyle(); sideW += st.FramePadding.x * 2.f + st.WindowPadding.x * 2.f + st.ScrollbarSize + st.ItemSpacing.x; }
+            ImGui::BeginChild("##side", ImVec2(sideW, -footer), true);
+            for (int i = 0; i < P_COUNT; ++i)
+                if (WhiteButton(kPageNames[i], g_page == i, ImVec2(-1, 0), true)) g_page = i;
+            if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemActive() && ImGui::IsMouseDragging(0, 8.f)) ImGui::SetScrollY(ImGui::GetScrollY() - io.MouseDelta.y);
+            ImGui::EndChild();
+            ImGui::SameLine();
+            ImGui::BeginGroup();
+            int page = g_page;
+            if (page == P_GRAPHICS)
+            {   // Firestorm-style tab row
+                static const char* tabs[4] = { "General", "Rendering", "Post Process", "Depth of Field" };
+                for (int i = 0; i < 4; ++i) { if (WhiteButton(tabs[i], g_gfxTab == i)) g_gfxTab = i; if (i < 3) ImGui::SameLine(0, 2.f); }
             }
-            float footer = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
-            ImGui::BeginChild("##scroll", ImVec2(0, -footer), false);
-            DrawFeatures(s, st);
+            ImGui::BeginChild("##scroll", ImVec2(0, -footer), true);
+            if (page == P_GRAPHICS)
+            {
+                if (g_gfxTab == 0) DrawGraphicsGeneral(s, st);
+                else DrawFeatures(g_gfxTab == 1 ? P_LIGHTING : (g_gfxTab == 2 ? P_IMAGE : P_CAMERA), s, st);
+            }
+            else DrawFeatures(page, s, st);
             if (g_testScroll > 0.f) { ImGui::SetScrollY(g_testScroll); }
             // touch scrolling: drag on anything that is not an active widget
             if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemActive() && ImGui::IsMouseDragging(0, 8.f))
                 ImGui::SetScrollY(ImGui::GetScrollY() - io.MouseDelta.y);
             ImGui::EndChild();
-            if (ImGui::Button("Save")) { if (g_ini[0]) PS_SaveSettings(s, g_ini); g_dirty = false; }
-            ImGui::SameLine();
-            if (ImGui::Button("Reset")) { PS_ResetSettings(s); g_worldTouched = true; g_dirty = true; }
-            ImGui::SameLine();
-            if (ImGui::Button("Close")) open = false;
+            ImGui::EndGroup();
+            // footer: Reset left, OK / Cancel right
+            if (ImGui::Button("Reset to defaults")) { PS_ResetSettings(s); g_worldTouched = true; g_dirty = true; }
+            {
+                float bw = px * 5.5f, sp = ImGui::GetStyle().ItemSpacing.x;
+                ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - bw * 2.f - sp);
+                if (WhiteButton("OK", true, ImVec2(bw, 0))) open = false;
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel", ImVec2(bw, 0))) { cancel = true; open = false; }
+            }
             ImVec2 p = ImGui::GetWindowPos(), z = ImGui::GetWindowSize();
             std::lock_guard<std::mutex> l(g_mx);
             g_rects[1] = { p.x, p.y, p.x + z.x, p.y + z.y, true };
         }
         else { std::lock_guard<std::mutex> l(g_mx); g_rects[1].valid = false; }
         ImGui::End();
-        if (!open) { g_menuOpen = false; if (g_ini[0]) PS_SaveSettings(s, g_ini); g_dirty = false; }
+        if (!open)
+        {
+            if (cancel && g_haveSnapshot) { s = g_snapshot; g_worldTouched = true; g_presetPressed = true; }
+            g_menuOpen = false; g_haveSnapshot = false;
+            if (g_ini[0]) PS_SaveSettings(s, g_ini); g_dirty = false;
+        }
     }
-    else { std::lock_guard<std::mutex> l(g_mx); g_rects[1].valid = false; }
+    else { g_haveSnapshot = false; }
+    if (!g_menuOpen) { std::lock_guard<std::mutex> l(g_mx); g_rects[1].valid = false; }
 
     if (s.shadowDebug && st.shadowTex)
     {   // shadow map preview (packed depth colours) so problems can be seen on screenshots
         ImDrawList* dl = ImGui::GetForegroundDrawList(); float sz = H * 0.26f; ImVec2 p0(W - sz - 8.f, 8.f), p1(W - 8.f, 8.f + sz);
         dl->AddRectFilled(ImVec2(p0.x - 3, p0.y - 3), ImVec2(p1.x + 3, p1.y + 3), IM_COL32(0, 0, 0, 200));
         dl->AddImage((ImTextureID)(intptr_t)st.shadowTex, p0, p1, ImVec2(0, 1), ImVec2(1, 0));
-        dl->AddText(ImVec2(p0.x + 4, p0.y + 2), IM_COL32(255, 220, 120, 255), s.shadowMethod == 0 ? "shadow mask" : "shadow map");
+        dl->AddText(ImVec2(p0.x + 4, p0.y + 2), IM_COL32(255, 255, 255, 255), s.shadowMethod == 0 ? "shadow mask" : "shadow map");
     }
     if (s.showButton) DrawButton(s, W, H);
     else { std::lock_guard<std::mutex> l(g_mx); g_rects[0].valid = false; }

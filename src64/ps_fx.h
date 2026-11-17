@@ -9,6 +9,8 @@ struct PSFrameInfo
     float underwater = 0.f;               // 0..1 (CWeather::UnderWaterness)
     float sunX = 0.5f, sunY = 0.5f;       // screen UV of the sun
     float sunVis = 0.f;                   // 0 = off screen / below horizon
+    unsigned targetFbo = 0;               // 1.5.0: framebuffer to read from / write to (the game's scene target before the HUD; 0 = back buffer)
+    unsigned cocTex = 0;                  // 1.5.0: [DepthOfField] Mode = Adaptive circle-of-confusion texture (0 = none)
 };
 
 // Values for the SAShaderL-compatible uniforms (ShaderFlags is set per pass) + Proper GFX extras, filled by main.cpp every frame

@@ -100,8 +100,8 @@ int main()
     // (d) idle -> the pill shrinks to a dot, so it cannot cover another mod's label
     frameDt(12, 0.5f);                                                            // 6 s idle
     UI_TestButtonRect(r); float dotW = r[2] - r[0];
-    printf("      pill width %.0f px -> collapsed dot %.0f px\n", pillW, dotW);
-    CHECK(dotW < pillW * 0.4f, "after a few seconds idle the button collapses to a small dot");
+    printf("      icon box %.0f px -> idle %.0f px\n", pillW, dotW);
+    CHECK(dotW < pillW * 0.8f, "after a few seconds idle the icon box shrinks");
     CHECK(!UI_OnTouch(2, 8, (int)(r[0] - 40), (int)((r[1] + r[3]) * 0.5f)), "the area the pill used to cover is free for other mods");
     UI_OnTouch(1, 8, 0, 0);
     bool wasOpen = UI_MenuOpen();

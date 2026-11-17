@@ -1,64 +1,72 @@
-# Proper Shaders (PC) → Proper GFX Mobile 1.4 (GTA SA): feature status
+# Proper GFX Mobile 1.5.0: feature status
 
-> 1.4: the 64-bit build (GTA SA 2.10) runs every effect from `.glsl` shaders (`shaders/` in the source) compiled into `libProperGFX64.so`; the 32-bit build (GTA SA 2.00) has the same effects built into the `.so` (C++/H only), without the new SunVector / bokeh / custom-pass extras.
+The 1.5.0 deferred screen-space features (AO / GI, skylight, ambient, contact shadows, volumetrics, clouds, PBR sky, aurora, SSR, rain, caustics, TAA, FSR, depth DoF, 4 cascades + PCSS) are in the **64-bit** build (GTA SA 2.10, GLSL ES 3.00). The 32-bit build (2.00) gets the new menu style, the icon button and the menu fix.
 
-Legend: ✅ implemented · 🟡 approximated with a screen-space / shader-patch / single-shadow-map substitute · ❌ engine = cannot do in GTA SA Mobile
+Legend: ✅ implemented · 🟡 approximated · ❌ not possible on this engine from a mod
 
 | # | Feature | Status | Notes |
 |---|---|---|---|
-| 1 | Full deferred rendering | ❌ engine = cannot do in GTA SA Mobile | Game is a forward renderer on GLES2; no G-buffer/MRT, cannot be injected by a mod loader. |
-| 2 | Per-pixel lighting (hundreds of lights) | ❌ engine = cannot do in GTA SA Mobile | Lighting is per-vertex with max 3 directional lights in the game's own shaders. |
-| 3 | Volumetric light beams | ❌ engine = cannot do in GTA SA Mobile | Needs a depth buffer. Not exposed on GLES2 default framebuffer. |
-| 4 | Shadermaps (normal/roughness/metallic) | ❌ engine = cannot do in GTA SA Mobile | Needs deferred G-buffer + TXDP streaming. |
-| 5 | Dynamic 4 cascaded shadows (PCSS) | 🟡 approximated | 64-bit 1.4.3: **2 cascades** (near 14-40 m, far 25-160 m, up to 2048 px, D16 hardware PCF) applied as a deferred screen-space mask from the scene depth (libZyZyGFX64 technique): every visible surface receives, peds included. 32-bit: one map, in-shader receivers. Follows the game clock and timecyc.dat. No PCSS. |
-| 6 | Soft shadow mask + gaussian blur | 🟡 approximated | 64-bit: a real screen-space shadow mask (`shadow_mask.glsl`, full or half resolution, 3x3 PCF grid) multiplied into the scene; no separate gaussian blur. |
-| 7 | Screen-space GI with AO | ❌ engine = cannot do in GTA SA Mobile | Needs depth + normals. |
-| 8 | Skylight (sky occlusion) | ❌ engine = cannot do in GTA SA Mobile | Needs depth/world-space data. |
-| 9 | Tricolored ambient lighting | ❌ engine = cannot do in GTA SA Mobile | Ambient is one time-cycle colour inside the game's shaders. |
-| 10 | Volumetric clouds | ❌ engine = cannot do in GTA SA Mobile | Sky is textured polygons; no volume pass possible. |
-| 11 | Volumetric height fog with godrays | 🟡 approximated | Distance fog curve/density patch + screen-space sun shafts (no height/depth). |
-| 12 | Water surface | 🟡 approximated | Water-detail contrast control in the game's water shader. |
-| 13 | Water caustics | 🟡 approximated | Screen-space caustic shimmer while underwater. |
-| 14 | Underwater | ✅ implemented | Distortion, tint and caustics driven by CWeather::UnderWaterness. |
-| 15 | Ambient occlusion (SSAO/HBAO/SSGI) | ❌ engine = cannot do in GTA SA Mobile | Needs depth buffer. |
-| 16 | HDR simulation + tonemapping (ACES/Timothy) | ✅ implemented | Pseudo-HDR expansion + ACES / Lottes(Timothy) / Reinhard. |
-| 17 | HDR composition / postfx (banding fix) | ✅ implemented | Triangular dithering in the final pass removes dark-gradient banding. |
-| 18 | LUT | ✅ implemented | 7 built-in grades + any LUT image (1.4): PNG / BMP (any variant) / TGA (incl. RLE) / JPG, strips 256x16, 1024x32, 4096x64 or square atlases 64x64 / 512x512; file name not case-sensitive (`Lut.bmp`), upside-down LUTs auto-detected, live reload, `[LUT] Amount` (default 1.0). |
-| 19 | Self-exposure | ✅ implemented | GPU-only log-average luma, no read-back stalls. |
-| 20 | Bloom | ✅ implemented | Soft-knee bright pass + 2x separable gaussian at 1/4 res. |
-| 21 | Sun rays | ✅ implemented | Screen-space radial shafts toward the sun (auto-off if camera not found). |
-| 22 | SMAA with temporal | 🟡 approximated | FXAA 1.0 instead (no history buffer / depth). |
-| 23 | AMD Contrast Adaptive Sharpening | ✅ implemented | FidelityFX CAS formula. |
-| 24 | Adaptive Depth of Field | 🟡 approximated | Tilt-shift pseudo-DoF; 64-bit 1.4: `dof.glsl` with TiltShift / CenterFocus modes, bokeh highlights, underwater blur (UnderWaterness). True DoF needs depth. |
-| 25 | Simple dithered sky shader | 🟡 approximated | Global dithering removes sky banding; sky shader itself unchanged. |
-| 26 | PBR sky shader with sky blend | ❌ engine = cannot do in GTA SA Mobile | Would require replacing the sky pipeline. |
-| 27 | New horizon fog | 🟡 approximated | Fog curve + density patched into the game's object shaders. |
-| 28 | Improved Z-fighting | 🟡 approximated | Manual near-clip override (RwCameraSetNearClipPlane). |
-| 29 | Soft particles | ❌ engine = cannot do in GTA SA Mobile | Needs depth texture. |
-| 30 | GPU-instanced grass with physical deform | ❌ engine = cannot do in GTA SA Mobile | Needs engine/geometry changes. |
-| 31 | Multithreaded procedural objects/grass | ❌ engine = cannot do in GTA SA Mobile | Engine-level change. |
-| 32 | Shaders lit by directional light | 🟡 approximated | Specular/reflection strength multipliers on existing dir-light shaders. |
-| 33 | Stochastic procedural texturing | ❌ engine = cannot do in GTA SA Mobile | Needs per-texture flags + shadermaps. |
-| 34 | Realtime global reflections | ❌ engine = cannot do in GTA SA Mobile | Game's own vehicle env-map stays; strength adjustable. |
-| 35 | World rainfall surface | 🟡 approximated | Wet darkening + sheen from CWeather::WetRoads. |
-| 36 | Vehicle shader (PBR, fresnel, rain) | 🟡 approximated | Reflection / specular multipliers + wet look only. |
-| 37 | Animated wind shader | ❌ engine = cannot do in GTA SA Mobile | Shaders cannot tell vegetation from other objects. |
-| 38 | Animated pickup shine | ❌ engine = cannot do in GTA SA Mobile | Pickups share generic shaders. |
-| 39 | First-person anti-clipping | 🟡 approximated | Manual near-clip override (set a small value). |
-| 40 | Artistic: VHS | ✅ implemented | Scanlines, tracking noise, chroma bleed. |
-| 41 | Artistic: GTA:CW outlines | ✅ implemented | Sobel outline pass on luma. |
-| 42 | Artistic: Aurora borealis | ❌ engine = cannot do in GTA SA Mobile | Needs a sky mask. |
-| 43 | Unlimited TXDP (TXD parents) in .ide | ❌ engine = cannot do in GTA SA Mobile | Needs IDE/streaming parser hooks (separate mod). |
-| 44 | 11k+ textures pre-configured | ❌ engine = cannot do in GTA SA Mobile | PC data pack; not part of a code mod. |
-| 45 | Cel / anime shading | ✅ implemented | Screen-space + world-shader light quantisation. |
-| 46 | Decals projector (GPU) | ❌ engine = cannot do in GTA SA Mobile | Needs depth reconstruction. |
-| 47 | Screen space reflections | ❌ engine = cannot do in GTA SA Mobile | Needs depth + normals. |
-| 48 | Lens flare | 🟡 approximated | Screen-space ghosts/halo; game's own coronas remain. |
-| 49 | Parallax occlusion mapping | ❌ engine = cannot do in GTA SA Mobile | Needs height maps + tangent space. |
-| 50 | Specular anisotropic hair | ❌ engine = cannot do in GTA SA Mobile | Needs tangents / per-material shaders. |
-| 51 | Subsurface scattering | ❌ engine = cannot do in GTA SA Mobile | Needs per-material pass. |
-| 52 | Improve wind / vegetation shader | ❌ engine = cannot do in GTA SA Mobile | See wind. |
-| 53 | Terrain splat maps shader | ❌ engine = cannot do in GTA SA Mobile | Needs new terrain data. |
-| 54 | Floating draggable settings button + menu | ✅ implemented | Drag anywhere; tap to open 'Proper Shader Settings'. |
+| 1 | Full deferred rendering | 🟡 approximated | 64-bit 1.5.0: deferred **screen-space lighting** (`ps_deferred.cpp`, `def_*.glsl`) on the game's scene colour + readable depth, run on the render thread right after RenderScene. The game itself stays a forward renderer: there is no G-buffer with albedo / roughness, so lighting is rebuilt from depth (position + normal). |
+| 2 | Per-pixel lighting with hundreds of lights | ❌ not possible on this engine | Needs a G-buffer and the game's light list on the GPU; SA's lights are vertex-lit inside its own shaders. Only the player's headlights are added (see Volumetric headlights). |
+| 3 | Volumetric light beams | 🟡 approximated | 64-bit: ray-marched sun beams through the shadow map (`def_volume.glsl`) + experimental volumetric headlight cones. |
+| 4 | Shadermaps (normal / roughness / metallic) + POM | ❌ not possible on this engine | Needs per-texture extra maps (TXDP streaming) and tangents in the game's meshes. |
+| 5 | Dynamic 4 cascaded shadows (PCSS) | ✅ implemented | 64-bit: `[DynamicShadows] Cascades = 2 / 4`, `PCSS = 1` (blocker search, contact-hardening penumbra). 32-bit: one map. |
+| 6 | Soft shadow mask with gaussian blur | ✅ implemented | 64-bit: depth-aware gaussian blur of the mask (`shadow_blur.glsl`, `SoftMaskBlur`). |
+| 7 | Screen-space GI with AO | ✅ implemented | 64-bit: `[AmbientOcclusion] Mode = SSGI` (HBAO + one indirect bounce of the occluder colour), half resolution + bilateral upsample. |
+| 8 | Skylight (sky occlusion) | 🟡 approximated | 64-bit: large-radius AO that only occludes the sky ambient term. |
+| 9 | Tricolored ambient lighting | ✅ implemented | 64-bit: sky / horizon / ground ambient by the reconstructed normal, from the timecyc colours. |
+| 10 | Volumetric clouds | 🟡 approximated | 64-bit: 6-step ray-marched cloud slab over the sky pixels (not a full 3D volume). |
+| 11 | Volumetric height fog with godrays | ✅ implemented | 64-bit: exponential height fog ray-marched through the sun shadow map (`[VolumetricFog]`). |
+| 12 | Ocean waves and boat wakes | ❌ not possible on this engine | Water is the game's own mesh; wave geometry / wakes need engine changes. |
+| 13 | Water surface, caustics and underwater | ✅ implemented | Water-detail patch, 64-bit caustics projected onto the sea floor from the depth (`[WaterCaustics]`), underwater tint / distortion. |
+| 14 | GPU decals | ❌ not possible on this engine | Needs the game's decal / bullet-hit data on the GPU. |
+| 15 | PBR bullet holes | ❌ not possible on this engine | Same as decals. |
+| 16 | SSAO, HBAO and SSGI | ✅ implemented | 64-bit: all three modes (`[AmbientOcclusion] Mode`). |
+| 17 | HDR tonemapping (ACES / Timothy) | ✅ implemented | ACES / Lottes (Timothy) / Reinhard. |
+| 18 | HDR composition with banding fix | ✅ implemented | Triangular dither in the final pass. |
+| 19 | LUT | ✅ implemented | `[LUT] Folders =` + `File =` (png / bmp / tga / jpg), live reload. |
+| 20 | Auto exposure | ✅ implemented | GPU log-average luma. |
+| 21 | Bloom | ✅ implemented | Soft-knee bright pass + separable gaussian. |
+| 22 | Sun rays | ✅ implemented | Screen-space radial shafts + 64-bit shadow-map godrays. |
+| 23 | SMAA with temporal | 🟡 approximated | FXAA + 64-bit TAA (depth reprojection, neighbourhood clamp, no sub-pixel jitter: the game's projection cannot be jittered safely). No SMAA. |
+| 24 | AMD CAS | ✅ implemented | FidelityFX CAS formula. |
+| 25 | FSR | 🟡 approximated | 64-bit: FSR 1 style EASU edge reconstruction + RCAS at native resolution (the game cannot render at a lower internal resolution from a mod). |
+| 26 | Adaptive DoF | ✅ implemented | 64-bit: depth-based circle of confusion with auto focus (`def_focus.glsl` / `def_coc.glsl`); tilt-shift remains as a mode. |
+| 27 | Dithered sky | 🟡 approximated | Global dither in the final pass removes sky banding; the game's sky shader is unchanged. |
+| 28 | PBR sky with sky blend | 🟡 approximated | 64-bit: analytic Rayleigh / Mie sky from the sun vector, blended over the game's sky (`[PBRSky] Blend`). |
+| 29 | Horizon fog | ✅ implemented | Fog curve patch + 64-bit height fog. |
+| 30 | Z-fighting fix | 🟡 approximated | Near-clip override. |
+| 31 | Soft particles | ❌ not possible on this engine | Particles are drawn by the game after the world with its own shaders; no hook to fade them by depth. |
+| 32 | GPU-instanced grass | ❌ not possible on this engine | Engine geometry / streaming change. |
+| 33 | Multithreaded procedural grass / objects | ❌ not possible on this engine | Engine change. |
+| 34 | Directional-lit shaders | 🟡 approximated | Specular / reflection multipliers on the game's lit shaders. |
+| 35 | Stochastic texturing | ❌ not possible on this engine | Needs per-texture flags in the game's shaders. |
+| 36 | Realtime global reflections | 🟡 approximated | 64-bit: screen-space reflections only (`[SSR]`), sky / ambient fallback for misses. |
+| 37 | SSR (wet floors and puddles) | ✅ implemented | 64-bit: ray-marched SSR with bisection refinement on wet / flat / shiny surfaces. |
+| 38 | World rain surface | ✅ implemented | 64-bit: puddles + ripples on upward surfaces while CWeather::WetRoads > 0 (`[WorldRain]`); wet look on the world shaders. |
+| 39 | Rain falling effect | ✅ implemented | 64-bit: screen-space rain streaks (`[RainFall]`). |
+| 40 | Vehicle PBR, fresnel and rain | 🟡 approximated | Reflection / specular multipliers + wet look; 64-bit SSR adds fresnel reflections on cars. |
+| 41 | Volumetric plane contrails | ❌ not possible on this engine | Needs the plane entities' positions per frame + a particle system. |
+| 42 | Animated wind | ❌ not possible on this engine | Vegetation is not tagged in the game's shaders. |
+| 43 | Pickup shine | ❌ not possible on this engine | Pickups share generic shaders. |
+| 44 | First-person anti-clipping | 🟡 approximated | Near-clip override. |
+| 45 | Artistic: VHS | ✅ implemented | Scanlines, tracking noise, chroma bleed. |
+| 46 | Artistic: GTA:CW outlines | ✅ implemented | Sobel outline pass. |
+| 47 | Artistic: Cel / Anime | ✅ implemented | Screen-space + world-shader quantisation. |
+| 48 | Artistic: Fur | ❌ not possible on this engine | Needs shell geometry per model. |
+| 49 | Artistic: Aurora | ✅ implemented | 64-bit: borealis on night sky pixels (`[Aurora]`). |
+| 50 | Unlimited TXDPs | ❌ not possible on this engine | IDE / streaming parser hooks (separate mod). |
+| 51 | 11k textures configured | ❌ not possible on this engine | PC data pack, not code. |
+| 52 | ModLoader implementation | ✅ implemented | AML mod; LUTs / custom.glsl / ini load from `files/ProperGFX/`. |
+| 53 | Public API for modders | ✅ implemented | 64-bit: `src64/propergfx_api.h`, AML interface `ProperGFX` + exported `ProperGFX_*` C functions (see API.md). |
+| 54 | In-game GUI editor | ✅ implemented | Firestorm-style menu (white accents), every setting live, presets 1-8, OK / Cancel. |
+| 55 | Lens flare | 🟡 approximated | Screen-space ghosts / halo. |
+| 56 | Anisotropic hair / SSS / terrain splat maps | ❌ not possible on this engine | Need per-material shaders and data. |
+| 57 | Contact shadows | ✅ implemented | 64-bit: short screen-space rays toward the sun. |
+| 58 | Volumetric headlights (experimental) | 🟡 approximated | 64-bit: light cones from the player's vehicle at night. |
+| 59 | Foliage backlights | ❌ not possible on this engine | Foliage cannot be told apart in a screen-space pass. |
+| 60 | Relief mapping | ❌ not possible on this engine | Same as POM. |
+| 61 | Floating settings button | ✅ implemented | Box with a vector icon (gear + half-lit disc, no texture, no text); shrinks when idle. |
+| 62 | No effects in main / pause / floating menu | ✅ implemented | 1.5.0: effects run inside the frame (after the scene / before CPostEffects::MobileRender, below the HUD) and stop while CTimer::m_UserPause or m_CodePause is set. |
 
-**Totals:** 12 implemented, 15 approximated, 27 cannot be done on GTA SA Mobile (out of 54).
+**Totals:** 29 implemented, 15 approximated, 18 not possible (out of 62).

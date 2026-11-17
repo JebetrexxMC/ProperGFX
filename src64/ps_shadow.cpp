@@ -3,6 +3,7 @@
 #include "ps_scene.h"
 #include <string>
 #include "ps_log.h"
+#include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
 #include <math.h>
 #include <string.h>
@@ -41,15 +42,20 @@ struct Prog { GLuint id = 0; GLint uLVP = -1, uObj = -1, uTex = -1, uAlpha = -1,
 
 // ---- 1.4.3 deferred (screen-space) shadows, the libZyZyGFX64 way: see shaders/fragment/shadow_mask.glsl and ps_scene.h ----
 struct FrameCam { bool ok = false; GLint fbo = 0; float view[16], proj[16], cam[3] = {0, 0, 0}, fog[3] = {0, 0, 0}; bool haveFog = false; };
-struct MaskProg { GLuint id = 0; GLint uDepth = -1, uMap0 = -1, uMap1 = -1, uIVP = -1, uL0 = -1, uL1 = -1, uP = -1, uSun = -1, uTex = -1, uFog = -1, uShade = -1, uTint = -1,
-                  uFlags = -1, uSunVector = -1, uUnder = -1; };
+struct MaskProg { GLuint id = 0; GLint uDepth = -1, uMap[4] = {-1, -1, -1, -1}, uRaw[2] = {-1, -1}, uIVP = -1, uL[4] = {-1, -1, -1, -1}, uP = -1, uSun = -1, uTex = -1, uTexB = -1,
+                  uFog = -1, uShade = -1, uTint = -1, uPcss = -1, uFlags = -1, uSunVector = -1, uUnder = -1; };
+struct BlurProg { GLuint id = 0; GLint uMask = -1, uDepth = -1, uDir = -1, uP = -1; };
+const int kMaxCasc = 4;
 struct Deferred
 {
     bool es3 = false, checked = false, failed = false;
     Prog caster; MaskProg mask; GLuint apply = 0; GLint applyMask = -1;
-    GLuint mapTex[2] = {0, 0}, mapFbo[2] = {0, 0}; int mapRes = 0;
-    GLuint maskTex = 0, maskFbo = 0; int mw = 0, mh = 0;
-    float lvp[2][16]; float R[2] = {0, 0}; bool mapReady[2] = {false, false};
+    GLuint mapTex[kMaxCasc] = {0, 0, 0, 0}, mapFbo[kMaxCasc] = {0, 0, 0, 0}; int mapRes = 0, nc = 2;
+    GLuint maskTex = 0, maskFbo = 0, tmpTex = 0, tmpFbo = 0; int mw = 0, mh = 0;
+    float lvp[kMaxCasc][16]; float R[kMaxCasc] = {0, 0, 0, 0}; bool mapReady[kMaxCasc] = {false, false, false, false};
+    GLuint rawSampler = 0;                          // 1.5: COMPARE_NONE sampler object = raw depth of the same map for the PCSS blocker search
+    BlurProg blur; bool blurFailed = false;         // 1.5: depth-aware gaussian blur of the mask (soft shadow mask)
+    bool camService = false;                        // 1.5: the deferred lighting passes need the camera even with shadows off
     uint32_t captures = 0, applied = 0, missedCam = 0, missedDepth = 0;
     FrameCam cam;
     FrameCam lastCam; uint32_t lastCamFrame = 0;   // 1.4.7: last accepted camera (a frame without one reuses it instead of blinking)
@@ -471,8 +477,10 @@ bool DefEnsurePrograms()
     {
         if (!DefBuild(D.mask.id, "vertex/shadow_screen.glsl", "fragment/shadow_mask.glsl")) { D.failed = true; Note("shadow_mask.glsl failed - see propergfx_log.txt"); return false; }
         MaskProg& m = D.mask; GLuint p = m.id;
-        m.uDepth = glGetUniformLocation(p, "uDepth"); m.uMap0 = glGetUniformLocation(p, "uMap0"); m.uMap1 = glGetUniformLocation(p, "uMap1");
-        m.uIVP = glGetUniformLocation(p, "uIVP"); m.uL0 = glGetUniformLocation(p, "uL0"); m.uL1 = glGetUniformLocation(p, "uL1");
+        m.uDepth = glGetUniformLocation(p, "uDepth");
+        for (int i = 0; i < kMaxCasc; ++i) { char n[8]; snprintf(n, sizeof(n), "uMap%d", i); m.uMap[i] = glGetUniformLocation(p, n); snprintf(n, sizeof(n), "uL%d", i); m.uL[i] = glGetUniformLocation(p, n); }
+        m.uRaw[0] = glGetUniformLocation(p, "uRaw0"); m.uRaw[1] = glGetUniformLocation(p, "uRaw1"); m.uPcss = glGetUniformLocation(p, "uPcss");
+        m.uIVP = glGetUniformLocation(p, "uIVP"); m.uTexB = glGetUniformLocation(p, "uTexB");
         m.uP = glGetUniformLocation(p, "uP"); m.uSun = glGetUniformLocation(p, "uSun"); m.uTex = glGetUniformLocation(p, "uTex");
         m.uFog = glGetUniformLocation(p, "uFog"); m.uShade = glGetUniformLocation(p, "uShade"); m.uTint = glGetUniformLocation(p, "uTint");
         m.uFlags = glGetUniformLocation(p, "ShaderFlags"); m.uSunVector = glGetUniformLocation(p, "SunVector"); m.uUnder = glGetUniformLocation(p, "UnderWaterness");
@@ -482,21 +490,35 @@ bool DefEnsurePrograms()
         if (!DefBuild(D.apply, "vertex/shadow_screen.glsl", "fragment/shadow_apply.glsl")) { D.failed = true; Note("shadow_apply.glsl failed - see propergfx_log.txt"); return false; }
         D.applyMask = glGetUniformLocation(D.apply, "uMask");
     }
+    if (!D.blur.id && !D.blurFailed)
+    {   // optional: a failed blur only loses the soft mask
+        if (DefBuild(D.blur.id, "vertex/shadow_screen.glsl", "fragment/shadow_blur.glsl"))
+        { GLuint p = D.blur.id; D.blur.uMask = glGetUniformLocation(p, "uMask"); D.blur.uDepth = glGetUniformLocation(p, "uDepth"); D.blur.uDir = glGetUniformLocation(p, "uDir"); D.blur.uP = glGetUniformLocation(p, "uP"); }
+        else D.blurFailed = true;
+    }
+    if (!D.rawSampler)
+    {
+        glGenSamplers(1, &D.rawSampler);
+        glSamplerParameteri(D.rawSampler, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+        glSamplerParameteri(D.rawSampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glSamplerParameteri(D.rawSampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glSamplerParameteri(D.rawSampler, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glSamplerParameteri(D.rawSampler, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
     return true;
 }
 
 bool DefEnsureMaps(int res)
 {
     Deferred& D = G.def;
-    if (D.mapFbo[0] && D.mapRes == res) return true;
-    for (int i = 0; i < 2; ++i)
+    const int nc = G.s.shadowCascades >= 4 ? 4 : 2;
+    if (D.mapFbo[0] && D.mapRes == res && D.nc == nc) return true;
+    for (int i = 0; i < kMaxCasc; ++i)
     {
         if (D.mapFbo[i]) glDeleteFramebuffers(1, &D.mapFbo[i]);
         if (D.mapTex[i]) glDeleteTextures(1, &D.mapTex[i]);
         D.mapFbo[i] = D.mapTex[i] = 0; D.mapReady[i] = false;
     }
-    D.mapRes = res;
-    for (int i = 0; i < 2; ++i)
+    D.mapRes = res; D.nc = nc;
+    for (int i = 0; i < nc; ++i)
     {
         glGenTextures(1, &D.mapTex[i]);
         glActiveTexture(GL_TEXTURE0);
@@ -521,22 +543,25 @@ bool DefEnsureMask(int w, int h)
 {
     Deferred& D = G.def;
     if (D.maskFbo && D.mw == w && D.mh == h) return true;
-    if (D.maskFbo) glDeleteFramebuffers(1, &D.maskFbo);
-    if (D.maskTex) glDeleteTextures(1, &D.maskTex);
-    D.maskFbo = D.maskTex = 0; D.mw = w; D.mh = h;
-    glGenTextures(1, &D.maskTex);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, D.maskTex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glGenFramebuffers(1, &D.maskFbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, D.maskFbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, D.maskTex, 0);
-    const GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    if (st != GL_FRAMEBUFFER_COMPLETE) { PS_Log("deferred shadows: mask target %dx%d incomplete 0x%x", w, h, st); D.failed = true; Note("shadow mask target incomplete - off"); return false; }
+    GLuint* texs[2] = { &D.maskTex, &D.tmpTex }; GLuint* fbos[2] = { &D.maskFbo, &D.tmpFbo };
+    for (int i = 0; i < 2; ++i) { if (*fbos[i]) glDeleteFramebuffers(1, fbos[i]); if (*texs[i]) glDeleteTextures(1, texs[i]); *fbos[i] = *texs[i] = 0; }
+    D.mw = w; D.mh = h;
+    for (int i = 0; i < 2; ++i)
+    {   // [1] = ping-pong target of the soft-mask blur
+        glGenTextures(1, texs[i]);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, *texs[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glGenFramebuffers(1, fbos[i]);
+        glBindFramebuffer(GL_FRAMEBUFFER, *fbos[i]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, *texs[i], 0);
+        const GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (st != GL_FRAMEBUFFER_COMPLETE) { PS_Log("deferred shadows: mask target %dx%d incomplete 0x%x", w, h, st); D.failed = true; Note("shadow mask target incomplete - off"); return false; }
+    }
     return true;
 }
 
@@ -586,6 +611,9 @@ void DefRenderCascades()
     if (!DefEnsureMaps(res)) return;
     const double t0 = NowMs();
     const float far = G.s.shadowDist, nearR = fminf(fmaxf(far * 0.28f, 14.f), 40.f);
+    const int nc = D.nc;
+    float radii[kMaxCasc] = { nearR, far, far, far };
+    if (nc == 4) { radii[1] = fmaxf(nearR * 2.2f, far * 0.25f); radii[2] = fmaxf(radii[1] * 1.8f, far * 0.5f); radii[3] = far; }
     glDisable(GL_BLEND); glDisable(GL_SCISSOR_TEST); glDisable(GL_STENCIL_TEST); glDisable(GL_CULL_FACE); glDisable(GL_DITHER);
     glDisable(GL_POLYGON_OFFSET_FILL);
     glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS); glDepthMask(GL_TRUE); glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
@@ -593,10 +621,12 @@ void DefRenderCascades()
     glUseProgram(D.caster.id);
     glUniform1i(D.caster.uTex, 0);
     int drawn = 0, rej = 0, errs = 0, fromCache = 0;
-    for (int c = 0; c < 2; ++c)
-    {
-        if (c == 1 && D.mapReady[1] && (D.captures & 1)) continue;                  // far cascade: every second capture
-        const float R = c == 0 ? nearR : far;
+    for (int c = 0; c < nc; ++c)
+    {   // near: every capture; 2nd: every second one; 3rd / 4th (4-cascade mode): every fourth one, staggered
+        if (c == 1 && D.mapReady[1] && (D.captures & 1)) continue;
+        if (c == 2 && D.mapReady[2] && (D.captures & 3) != 1) continue;
+        if (c == 3 && D.mapReady[3] && (D.captures & 3) != 3) continue;
+        const float R = radii[c];
         float vp[16];
         Shadow_BuildLightMatrix(G.sun, G.cam, R, kDefDepth, res, vp);
         glBindFramebuffer(GL_FRAMEBUFFER, D.mapFbo[c]);
@@ -614,7 +644,7 @@ void DefRenderCascades()
     G.stats.replayed = drawn; G.stats.rejected += rej; G.stats.resolution = res; G.stats.cacheKept = fromCache;
     G.stats.cpuMs = (float)(NowMs() - t0);
     if (G.logTick++ % 120 == 0)
-        PS_Log("shadows (deferred): captured=%d rendered=%d (2 cascades %d^2, near %.0f m / far %.0f m) cache=%d kept=%d othertargets=%d tags=%s alphatest=%s buffers=%s(%u writes) "
+        PS_Log("shadows (deferred): captured=%d rendered=%d (cascades %d^2, near %.0f m / far %.0f m) cache=%d kept=%d othertargets=%d tags=%s alphatest=%s buffers=%s(%u writes) "
                "rej: blend=%d nodepthwrite=%d noibo=%d vformat=%d noshader=%d mode=%d dist=%d stale=%d sun=(%.2f %.2f %.2f) %.1fms",
                G.stats.captured, drawn, res, nearR, far, G.stats.cacheSize, fromCache, G.stats.otherTargets, G.legacyCache ? "MISSING (legacy cache)" : "on",
                G.atFunc ? "game state" : "shader only", G.bufTracking ? "tracked" : "untracked", G.bufWrites, G.stats.rejBlend, G.stats.rejNoDepthWrite, G.stats.rejNoIndexBuffer,
@@ -622,19 +652,27 @@ void DefRenderCascades()
 }
 
 // mask (scene depth + cascades -> multiply factor) and apply (scene colour *= mask). The scene target is bound when this runs.
-void DefMaskAndApply(GLint sceneFbo, GLuint depthTex, int w, int h)
-{
-    Deferred& D = G.def;
-    if (!D.mapReady[0] || !D.mapReady[1]) return;
-    const FrameCam& fc = D.cam;
-    // inverse view-projection relative to the camera: ndc -> world - camera (double precision: world coordinates reach 3000 m)
+bool CamMatrices(const FrameCam& fc, float ivp[16], float vp[16])
+{   // inverse view-projection relative to the camera: ndc -> world - camera (double precision: world coordinates reach 3000 m)
     double P[16], V[16], PV[16], T[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1}, PVT[16], I[16];
     for (int i = 0; i < 16; ++i) { P[i] = fc.proj[i]; V[i] = fc.view[i]; }
     T[12] = fc.cam[0]; T[13] = fc.cam[1]; T[14] = fc.cam[2];
     MulD(P, V, PV); MulD(PV, T, PVT);
-    if (!InvD(PVT, I)) { Note("camera matrix not invertible"); return; }
-    float ivp[16]; for (int i = 0; i < 16; ++i) ivp[i] = (float)I[i];
-    float L0[16], L1[16]; RelToCam(D.lvp[0], fc.cam, L0); RelToCam(D.lvp[1], fc.cam, L1);
+    if (!InvD(PVT, I)) return false;
+    for (int i = 0; i < 16; ++i) { ivp[i] = (float)I[i]; if (vp) vp[i] = (float)PVT[i]; }
+    return true;
+}
+
+void DefMaskAndApply(GLint sceneFbo, GLuint depthTex, int w, int h)
+{
+    Deferred& D = G.def;
+    const int nc = D.nc;
+    for (int i = 0; i < nc; ++i) if (!D.mapReady[i]) return;
+    const FrameCam& fc = D.cam;
+    float ivp[16];
+    if (!CamMatrices(fc, ivp, nullptr)) { Note("camera matrix not invertible"); return; }
+    float L[kMaxCasc][16];
+    for (int i = 0; i < kMaxCasc; ++i) RelToCam(D.lvp[i < nc ? i : nc - 1], fc.cam, L[i]);
 
     const int scale = (G.s.shadowMaskHalf || G.level >= 2) ? 2 : 1;      // adaptive quality 2+: half-res mask
     const int mw = (w + scale - 1) / scale, mh = (h + scale - 1) / scale;
@@ -652,15 +690,18 @@ void DefMaskAndApply(GLint sceneFbo, GLuint depthTex, int w, int h)
     const MaskProg& m = D.mask;
     glUseProgram(m.id);
     glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, depthTex);
-    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, D.mapTex[0]);
-    glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, D.mapTex[1]);
-    glUniform1i(m.uDepth, 0); glUniform1i(m.uMap0, 1); glUniform1i(m.uMap1, 2);
+    for (int i = 0; i < kMaxCasc; ++i) { glActiveTexture(GL_TEXTURE1 + i); glBindTexture(GL_TEXTURE_2D, D.mapTex[i < nc ? i : nc - 1]); }
+    const bool pcss = G.s.shadowPcss && D.rawSampler;
+    for (int i = 0; i < 2; ++i) { glActiveTexture(GL_TEXTURE5 + i); glBindTexture(GL_TEXTURE_2D, D.mapTex[i]); glBindSampler(5 + i, D.rawSampler); }
+    glUniform1i(m.uDepth, 0);
+    for (int i = 0; i < kMaxCasc; ++i) { glUniform1i(m.uMap[i], 1 + i); glUniformMatrix4fv(m.uL[i], 1, GL_FALSE, L[i]); }
+    glUniform1i(m.uRaw[0], 5); glUniform1i(m.uRaw[1], 6);
     glUniformMatrix4fv(m.uIVP, 1, GL_FALSE, ivp);
-    glUniformMatrix4fv(m.uL0, 1, GL_FALSE, L0);
-    glUniformMatrix4fv(m.uL1, 1, GL_FALSE, L1);
     glUniform4f(m.uP, (float)scale, fc.cam[2] > 0.5f ? fc.cam[2] : 0.f, G.s.shadowSoft, G.s.shadowBias);
     glUniform4f(m.uSun, G.sun[0], G.sun[1], G.sun[2], 0.5f / kDefDepth);
-    glUniform4f(m.uTex, 2.f * D.R[0] / res, 2.f * D.R[1] / res, 1.f / res, 1.f / res);
+    glUniform4f(m.uTex, 2.f * D.R[0] / res, 2.f * D.R[nc > 1 ? 1 : 0] / res, 1.f / res, 1.f / res);
+    glUniform4f(m.uTexB, 2.f * D.R[nc > 2 ? 2 : nc - 1] / res, 2.f * D.R[nc - 1] / res, (float)nc, 0.f);
+    glUniform4f(m.uPcss, pcss ? 1.f : 0.f, 0.035f * (0.5f + G.s.shadowSoft), 2.f * kDefDepth, 0.f);   // on, sun "size" (penumbra growth per metre), light depth range
     if (fc.haveFog && fc.fog[2] > 0.f) glUniform2f(m.uFog, fc.fog[0], fc.fog[2]); else glUniform2f(m.uFog, 0.f, 0.f);
     glUniform4f(m.uShade, strength, G.s.shadowTint, 0.6f, 0.f);
     glUniform3f(m.uTint, G.s.shadowTintR, G.s.shadowTintG, G.s.shadowTintB);
@@ -668,6 +709,23 @@ void DefMaskAndApply(GLint sceneFbo, GLuint depthTex, int w, int h)
     if (m.uSunVector >= 0) glUniform3f(m.uSunVector, D.sunVector[0], D.sunVector[1], D.sunVector[2]);
     if (m.uUnder >= 0) glUniform1f(m.uUnder, D.underwater);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindSampler(5, 0); glBindSampler(6, 0);
+    // ---- 1.5 soft shadow mask: separable depth-aware gaussian (mask -> tmp -> mask)
+    if (G.s.shadowBlurOn && D.blur.id && G.level < 3)
+    {
+        const BlurProg& b = D.blur;
+        glUseProgram(b.id);
+        glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, depthTex);
+        glUniform1i(b.uMask, 0); glUniform1i(b.uDepth, 1);
+        const float A = fc.proj[10], B = fc.proj[14];
+        glUniform4f(b.uP, (float)scale, A, B, 0.f);
+        glBindFramebuffer(GL_FRAMEBUFFER, D.tmpFbo);
+        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, D.maskTex);
+        glUniform2f(b.uDir, 1.f / mw, 0.f); glDrawArrays(GL_TRIANGLES, 0, 3);
+        glBindFramebuffer(GL_FRAMEBUFFER, D.maskFbo);
+        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, D.tmpTex);
+        glUniform2f(b.uDir, 0.f, 1.f / mh); glDrawArrays(GL_TRIANGLES, 0, 3);
+    }
     // ---- apply: scene colour *= mask (alpha untouched)
     glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)sceneFbo);
     glViewport(0, 0, w, h);
@@ -719,7 +777,30 @@ void Shadow_Configure(const PSSettings& s, int level)
     else if (G.enabled && !was) Note("starting (deferred)...");
     G.s.shadowMethod = 0;                                       // 1.4.6: always Deferred (like libZyZGFX64) - the 1.4.2 in-shader method is gone
     G.stats.deferred = true;
-    Scene_SetWanted(G.enabled && !G.def.failed);
+    Scene_SetWanted((G.enabled && !G.def.failed) || G.def.camService);
+}
+
+void Shadow_SetCameraService(bool on) { G.def.camService = on; }
+bool Shadow_SceneWanted() { return G.enabled && !G.def.failed; }
+
+bool Shadow_GetFrameCamera(PSFrameCam& o)
+{
+    Deferred& D = G.def;
+    const FrameCam* fc = D.cam.ok ? &D.cam : ((D.lastCam.ok && G.frame - D.lastCamFrame <= 2) ? &D.lastCam : nullptr);
+    o.ok = false;
+    if (!fc) return false;
+    if (!CamMatrices(*fc, o.ivp, o.vp)) return false;
+    memcpy(o.view, fc->view, sizeof(o.view)); memcpy(o.proj, fc->proj, sizeof(o.proj)); memcpy(o.cam, fc->cam, sizeof(o.cam));
+    o.fbo = fc->fbo; o.haveFog = fc->haveFog; memcpy(o.fog, fc->fog, sizeof(o.fog));
+    if (!Scene_DepthOf(o.fbo, o.depthTex, o.w, o.h)) return false;
+    if (o.w <= 0 || o.h <= 0) { GLint vp[4] = {0, 0, 0, 0}; glGetIntegerv(GL_VIEWPORT, vp); o.w = vp[2]; o.h = vp[3]; }
+    if (o.w < 16 || o.h < 16) return false;
+    o.mapOk = G.enabled && D.mapReady[0] && G.fade > 0.001f && G.ready;
+    o.mapTex = D.mapTex[0]; o.mapR = D.R[0]; o.shadowFade = G.fade;
+    if (o.mapOk) { RelToCam(D.lvp[D.nc > 1 ? 1 : 0], fc->cam, o.lvp); o.mapTex = D.mapTex[D.nc > 1 ? 1 : 0]; o.mapR = D.R[D.nc > 1 ? 1 : 0]; }   // a wider cascade for the god rays
+    o.depthRange = 2.f * kDefDepth;
+    o.ok = true;
+    return true;
 }
 
 bool Shadow_Deferred() { return true; }
@@ -747,7 +828,7 @@ void Shadow_SetFrameGlobals(float underwater, const float sunVector[3])
     memcpy(G.def.sunVector, sunVector, sizeof(G.def.sunVector));
 }
 
-bool Shadow_WantCamera() { return G.enabled && !G.def.cam.ok && Scene_Wanted(); }
+bool Shadow_WantCamera() { return (G.enabled || G.def.camService) && !G.def.cam.ok && Scene_Wanted(); }
 
 // deferred: the camera of THIS frame (the mask is rebuilt every frame, the casters only every N frames)
 void Shadow_RecordCamera()
@@ -968,8 +1049,8 @@ const PSShadowStats& Shadow_Stats() { return G.stats; }
 
 void Shadow_ContextLost()
 {
-    bool failed = G.failed; PSSettings s = G.s; const int* af = G.atFunc; const float* ar = G.atRef; bool bt = G.bufTracking;
-    G = ShadowState(); G.failed = failed; G.s = s; G.atFunc = af; G.atRef = ar; G.bufTracking = bt;
+    bool failed = G.failed, cs = G.def.camService; PSSettings s = G.s; const int* af = G.atFunc; const float* ar = G.atRef; bool bt = G.bufTracking;
+    G = ShadowState(); G.failed = failed; G.s = s; G.atFunc = af; G.atRef = ar; G.bufTracking = bt; G.def.camService = cs;
     g_buf.clear(); g_bufBig.clear();
     Note("context lost - rebuilding");
 }
@@ -980,8 +1061,12 @@ void Shadow_Shutdown()
     if (D.caster.id) glDeleteProgram(D.caster.id);
     if (D.mask.id) glDeleteProgram(D.mask.id);
     if (D.apply) glDeleteProgram(D.apply);
-    for (int i = 0; i < 2; ++i) { if (D.mapFbo[i]) glDeleteFramebuffers(1, &D.mapFbo[i]); if (D.mapTex[i]) glDeleteTextures(1, &D.mapTex[i]); }
+    for (int i = 0; i < kMaxCasc; ++i) { if (D.mapFbo[i]) glDeleteFramebuffers(1, &D.mapFbo[i]); if (D.mapTex[i]) glDeleteTextures(1, &D.mapTex[i]); }
     if (D.maskFbo) glDeleteFramebuffers(1, &D.maskFbo);
     if (D.maskTex) glDeleteTextures(1, &D.maskTex);
+    if (D.tmpFbo) glDeleteFramebuffers(1, &D.tmpFbo);
+    if (D.tmpTex) glDeleteTextures(1, &D.tmpTex);
+    if (D.blur.id) glDeleteProgram(D.blur.id);
+    if (D.rawSampler) glDeleteSamplers(1, &D.rawSampler);
     G = ShadowState();
 }

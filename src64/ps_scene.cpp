@@ -60,7 +60,7 @@ void OurCommand(char** pp)
     *pp += 8;
     uint64_t pay = 0; memcpy(&pay, *pp, 8); *pp += 8;
     const int ev = (int)(pay & 0xff), arg = (int)((pay >> 8) & 0xffff);
-    if (ev >= 0 && ev < 4) ++S.ran[ev];
+    if (ev >= 0 && ev < 5) ++S.ran[ev];
     if (g_handler) g_handler(ev, arg);
 }
 
@@ -240,7 +240,7 @@ bool Scene_EventsReady() { return S.rqReady; }
 
 bool Scene_PostEvent(int ev, int arg)
 {
-    if (!g_wanted || S.disabled || ev < 0 || ev > 3) return false;
+    if (!g_wanted || S.disabled || ev < 0 || ev > 4) return false;
     if (!Register()) return false;
     char* rq = (char*)*g_rqVar;
     if (!rq) return false;
@@ -293,6 +293,6 @@ const PSSceneStats& Scene_Stats() { return S; }
 
 void Scene_RunEventForTest(int ev, int arg)
 {
-    if (ev >= 0 && ev < 4) ++S.ran[ev];
+    if (ev >= 0 && ev < 5) ++S.ran[ev];
     if (g_handler) g_handler(ev, arg);
 }

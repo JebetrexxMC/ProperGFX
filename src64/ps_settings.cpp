@@ -3,17 +3,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <sys/stat.h>
 
 uint32_t g_worldGen = 1;
 
-const char* const PS_QualityNames[] = { "Low", "Medium", "High", "Custom" };   const int PS_QualityCount = 4;
+const char* const PS_QualityNames[] = { "Low", "Medium", "High", "Custom", "Ultra" };   const int PS_QualityCount = 5;
+const char* const PS_QualityMenuNames[] = { "Low", "Mid", "High", "Ultra" };
+const char* const PS_AoModeNames[] = { "SSAO", "HBAO", "SSGI" }; const int PS_AoModeCount = 3;
 const char* const PS_LookNames[]    = { "Default", "Cinematic", "Vivid", "Soft dream", "Anime", "Noir", "Retro VHS" }; const int PS_LookCount = 7;
 const char* const PS_GradeNames[]   = { "Neutral", "Cinematic (teal/orange)", "Warm sunset", "Cold", "Noir", "Vintage", "Vivid" }; const int PS_GradeCount = 7;
 const char* const PS_TonemapNames[] = { "Off", "ACES", "Timothy", "Reinhard" }; const int PS_TonemapCount = 4;
 const char* const PS_TimeNames[]    = { "Auto", "Day", "Night" }; const int PS_TimeCount = 3;
 const char* const PS_SunSourceNames[] = { "Auto", "TimeCycle", "Light" }; const int PS_SunSourceCount = 3;
 const char* const PS_ShadowMethodNames[] = { "Deferred", "InShader" }; const int PS_ShadowMethodCount = 2;
-const char* const PS_DofModeNames[] = { "TiltShift", "CenterFocus" }; const int PS_DofModeCount = 2;
+const char* const PS_DofModeNames[] = { "TiltShift", "CenterFocus", "Adaptive" }; const int PS_DofModeCount = 3;   // 1.5: Adaptive = real depth of field with auto focus (scene depth)
 
 // ------------------------------------------------------------------ field table
 enum FT { FT_BOOL, FT_INT, FT_FLOAT, FT_DN, FT_ENUM, FT_STR, FT_FLOAT_LEGACY };   // LEGACY = read for old ini files, never written
@@ -30,7 +33,7 @@ struct Field { const char* sec; const char* key; FT t; size_t off; const char* c
 
 static const Field kFields[] = {
     B("General", "Enabled", enabled) B("General", "PostProcessing", postFx) B("General", "WorldShaderPatches", worldPatch)
-    E("General", "Quality", quality, PS_QualityNames, 4) E("General", "Look", look, PS_LookNames, 7)
+    E("General", "Quality", quality, PS_QualityNames, 5) E("General", "Look", look, PS_LookNames, 7)
     B("General", "AdaptiveQuality", adaptive) I("General", "TargetFPS", targetFps) E("General", "TimeOfDay", timeOfDay, PS_TimeNames, 3)
     B("SimulateHDR", "Enabled", hdr) E("SimulateHDR", "Tonemapper", tonemap, PS_TonemapNames, 4)
     D("SimulateHDR", "Amount", hdrAmount) D("SimulateHDR", "Exposure", exposure)
@@ -50,7 +53,7 @@ static const Field kFields[] = {
     B("FilmGrain", "Enabled", grain) F("FilmGrain", "Strength", grainStrength)
     B("ChromaticAberration", "Enabled", chromatic) F("ChromaticAberration", "Strength", chromaticStrength)
     B("DepthOfField", "Enabled", tiltShift) F("DepthOfField", "Focus", tiltFocus) F("DepthOfField", "Width", tiltWidth) F("DepthOfField", "Strength", tiltStrength)
-    E("DepthOfField", "Mode", dofMode, PS_DofModeNames, 2) F("DepthOfField", "Bokeh", dofBokeh) F("DepthOfField", "Radius", dofRadius) F("DepthOfField", "UnderwaterBlur", dofUnderwater)
+    E("DepthOfField", "Mode", dofMode, PS_DofModeNames, 3) F("DepthOfField", "Bokeh", dofBokeh) F("DepthOfField", "Radius", dofRadius) F("DepthOfField", "UnderwaterBlur", dofUnderwater)
     B("SunVector", "Enabled", sunVectorOn) F("SunVector", "Glow", sunGlow) F("SunVector", "GlowSize", sunGlowSize) F("SunVector", "GoldenHour", goldenHour)
     B("Underwater", "Enabled", underwater) F("Underwater", "Strength", underwaterStrength)
     B("HorizonFog", "Enabled", fogOn) D("HorizonFog", "Density", fogDensity) F("HorizonFog", "Softness", fogSoftness)
@@ -65,6 +68,24 @@ static const Field kFields[] = {
     E("DynamicShadows", "Method", shadowMethod, PS_ShadowMethodNames, 2) B("DynamicShadows", "HalfResMask", shadowMaskHalf)
     E("DynamicShadows", "SunSource", sunSource, PS_SunSourceNames, 3) B("DynamicShadows", "TimecycStrength", shadowTimecyc) B("DynamicShadows", "CrashGuard", shadowGuard)
     F("DynamicShadows", "Tint", shadowTint) F("DynamicShadows", "TintR", shadowTintR) F("DynamicShadows", "TintG", shadowTintG) F("DynamicShadows", "TintB", shadowTintB)
+    B("DynamicShadows", "PCSS", shadowPcss) B("DynamicShadows", "SoftMaskBlur", shadowBlurOn) I("DynamicShadows", "Cascades", shadowCascades)
+    B("Deferred", "Enabled", deferredOn) B("Deferred", "HalfRes", deferredHalf)
+    B("AmbientOcclusion", "Enabled", aoOn) E("AmbientOcclusion", "Mode", aoMode, PS_AoModeNames, 3) F("AmbientOcclusion", "Radius", aoRadius)
+    F("AmbientOcclusion", "Intensity", aoIntensity) F("AmbientOcclusion", "GlobalIllumination", giStrength)
+    B("Skylight", "Enabled", skylightOn) F("Skylight", "Strength", skylightStrength)
+    B("AmbientLighting", "Enabled", ambientOn) F("AmbientLighting", "Strength", ambientStrength)
+    B("ContactShadows", "Enabled", contactOn) F("ContactShadows", "Length", contactLength) F("ContactShadows", "Strength", contactStrength)
+    B("VolumetricFog", "Enabled", volFogOn) D("VolumetricFog", "Density", volFogDensity) F("VolumetricFog", "HeightFalloff", volFogFalloff) F("VolumetricFog", "Godrays", volGodrays)
+    B("VolumetricHeadlights", "Enabled", headlightsOn) F("VolumetricHeadlights", "Strength", headlightStrength)
+    B("VolumetricClouds", "Enabled", cloudsOn) F("VolumetricClouds", "Coverage", cloudCoverage) F("VolumetricClouds", "Density", cloudDensity) F("VolumetricClouds", "Speed", cloudSpeed)
+    B("PBRSky", "Enabled", pbrSkyOn) F("PBRSky", "Blend", pbrSkyBlend)
+    B("Aurora", "Enabled", auroraOn) F("Aurora", "Strength", auroraStrength)
+    B("SSR", "Enabled", ssrOn) F("SSR", "Strength", ssrStrength) F("SSR", "DrySurfaces", ssrDry)
+    B("WorldRain", "Enabled", rainSurfOn) F("WorldRain", "Puddles", puddles) F("WorldRain", "Ripples", ripples)
+    B("RainFall", "Enabled", rainFallOn) F("RainFall", "Intensity", rainFall)
+    B("WaterCaustics", "Enabled", causticsOn) F("WaterCaustics", "Strength", causticsStrength)
+    B("TAA", "Enabled", taaOn) F("TAA", "Blend", taaBlend)
+    B("FSR", "Enabled", fsrOn) F("FSR", "Sharpness", fsrSharpness)
     B("CelShading", "Enabled", cel) F("CelShading", "Levels", celLevels) F("CelShading", "Amount", celAmount)
     B("CelShading", "World", celWorld) F("CelShading", "WorldLevels", celWorldLevels)
     B("Outlines", "Enabled", outline) F("Outlines", "Strength", outlineStrength) F("Outlines", "Threshold", outlineThreshold)
@@ -83,7 +104,19 @@ static inline void clampDN(DN& d, float a, float b) { d.day = clampf(d.day, a, b
 static void Sanitize(PSSettings& s)
 {
     s.tonemap = s.tonemap < 0 ? 0 : (s.tonemap > 3 ? 3 : s.tonemap);
-    s.quality = s.quality < 0 ? 0 : (s.quality > 3 ? 3 : s.quality);
+    s.quality = s.quality < 0 ? 0 : (s.quality > 4 ? 4 : s.quality);
+    s.aoMode = (s.aoMode < 0 || s.aoMode > 2) ? AO_HBAO : s.aoMode;
+    s.aoRadius = clampf(s.aoRadius, 0.2f, 4.f); s.aoIntensity = clampf(s.aoIntensity, 0.f, 2.f); s.giStrength = clampf(s.giStrength, 0.f, 2.f);
+    s.skylightStrength = clampf(s.skylightStrength, 0.f, 1.f); s.ambientStrength = clampf(s.ambientStrength, 0.f, 1.f);
+    s.contactLength = clampf(s.contactLength, 0.1f, 3.f); s.contactStrength = clampf(s.contactStrength, 0.f, 1.f);
+    clampDN(s.volFogDensity, 0.f, 2.f); s.volFogFalloff = clampf(s.volFogFalloff, 0.02f, 2.f); s.volGodrays = clampf(s.volGodrays, 0.f, 2.f);
+    s.headlightStrength = clampf(s.headlightStrength, 0.f, 2.f);
+    s.cloudCoverage = clampf(s.cloudCoverage, 0.f, 1.f); s.cloudDensity = clampf(s.cloudDensity, 0.f, 2.f); s.cloudSpeed = clampf(s.cloudSpeed, 0.f, 5.f);
+    s.pbrSkyBlend = clampf(s.pbrSkyBlend, 0.f, 1.f); s.auroraStrength = clampf(s.auroraStrength, 0.f, 2.f);
+    s.ssrStrength = clampf(s.ssrStrength, 0.f, 1.f); s.ssrDry = clampf(s.ssrDry, 0.f, 1.f);
+    s.puddles = clampf(s.puddles, 0.f, 1.f); s.ripples = clampf(s.ripples, 0.f, 1.f); s.rainFall = clampf(s.rainFall, 0.f, 1.f);
+    s.causticsStrength = clampf(s.causticsStrength, 0.f, 2.f); s.taaBlend = clampf(s.taaBlend, 0.5f, 0.97f); s.fsrSharpness = clampf(s.fsrSharpness, 0.f, 1.f);
+    s.shadowCascades = s.shadowCascades >= 3 ? 4 : 2;
     s.look = s.look < 0 ? 0 : (s.look >= PS_LookCount ? 0 : s.look);
     s.gradePreset = s.gradePreset < 0 ? 0 : (s.gradePreset >= PS_GradeCount ? 0 : s.gradePreset);
     s.targetFps = s.targetFps ? 1 : 0;
@@ -104,7 +137,7 @@ static void Sanitize(PSSettings& s)
     s.buttonX = clampf(s.buttonX, 0.f, 1.f); s.buttonY = clampf(s.buttonY, 0.f, 1.f);
     s.buttonScale = clampf(s.buttonScale, 0.5f, 2.5f); s.buttonOpacity = clampf(s.buttonOpacity, PS_BUTTON_MIN_OPACITY, 1.f); if (s.buttonOpacity < PS_BUTTON_HIDDEN_BELOW) s.buttonOpacity = 0.f;
     s.lutAmount = clampf(s.lutAmount, 0.f, 1.f);
-    s.dofMode = (s.dofMode < 0 || s.dofMode > 1) ? 0 : s.dofMode; s.dofBokeh = clampf(s.dofBokeh, 0.f, 2.f); s.dofRadius = clampf(s.dofRadius, 0.3f, 3.f);
+    s.dofMode = (s.dofMode < 0 || s.dofMode > 2) ? 0 : s.dofMode; s.dofBokeh = clampf(s.dofBokeh, 0.f, 2.f); s.dofRadius = clampf(s.dofRadius, 0.3f, 3.f);
     s.dofUnderwater = clampf(s.dofUnderwater, 0.f, 1.f); s.sunGlow = clampf(s.sunGlow, 0.f, 1.5f); s.sunGlowSize = clampf(s.sunGlowSize, 0.03f, 0.6f);
     s.goldenHour = clampf(s.goldenHour, 0.f, 1.f); s.shadowTint = clampf(s.shadowTint, 0.f, 1.f);
     s.shadowMethod = 0;                 // 1.4.6: always Deferred (like ZyZGFX64); an old 'Method = InShader' line is ignored
@@ -201,26 +234,64 @@ void PS_ResetSettings(PSSettings& s)
 // Low / Medium / High: performance tiers (the PC mod ships the same three presets)
 void PS_ApplyQuality(PSSettings& s, int q)
 {
-    if (q < 0 || q > 2) { s.quality = Q_CUSTOM; return; }
+    if (q < 0 || q > 4 || q == Q_CUSTOM) { s.quality = Q_CUSTOM; return; }
     s.quality = q;
     s.hdr = true; s.dither = true; s.fxaa = true; s.grading = true;
     switch (q)
     {
         case Q_LOW:
             s.autoExp = false; s.bloom = false; s.sunRays = false; s.lensFlare = false; s.cas = false; s.vignette = false;
-            s.shadows = false;                      // Low = fast and smooth: no shadows, no bloom, no sun rays
-            s.fxaaStrength = 0.7f; s.shadowRes = 0; s.shadowEvery = 6; s.shadowDist = 55.f; break;
+            s.shadows = false;                      // Low = fast and smooth: no shadows, no bloom, no sun rays, no deferred lighting
+            s.fxaaStrength = 0.7f; s.shadowRes = 0; s.shadowEvery = 6; s.shadowDist = 55.f;
+            s.deferredOn = false; s.taaOn = false; s.fsrOn = false; break;
         case Q_MEDIUM:
             s.autoExp = true; s.bloom = true; s.sunRays = true; s.lensFlare = false; s.cas = true; s.vignette = true;
-            s.shadows = true;                       // Medium: shadows + bloom + sun rays for mid-range phones
-            s.casStrength = 0.40f; s.fxaaStrength = 0.85f; s.shadowRes = 1; s.shadowEvery = 4; s.shadowDist = 80.f; s.shadowMaskHalf = true; break;
+            s.shadows = true;                       // Medium: shadows + bloom + sun rays + half-res AO / fog for mid-range phones
+            s.casStrength = 0.40f; s.fxaaStrength = 0.85f; s.shadowRes = 1; s.shadowEvery = 4; s.shadowDist = 80.f; s.shadowMaskHalf = true;
+            s.shadowPcss = false; s.shadowBlurOn = true; s.shadowCascades = 2;
+            s.deferredOn = true; s.deferredHalf = true; s.aoOn = true; s.aoMode = AO_SSAO; s.skylightOn = true; s.ambientOn = true;
+            s.contactOn = false; s.volFogOn = true; s.volGodrays = 0.f; s.ssrOn = true; s.ssrDry = 0.f; s.rainSurfOn = true; s.rainFallOn = true;
+            s.causticsOn = true; s.cloudsOn = false; s.pbrSkyOn = false; s.taaOn = false; s.fsrOn = false; break;
         case Q_HIGH:
             s.autoExp = true; s.bloom = true; s.sunRays = true; s.lensFlare = true; s.cas = true; s.vignette = true;
             s.shadows = true;                       // High: everything, bigger shadow map, updated more often
-            s.casStrength = 0.50f; s.fxaaStrength = 0.90f; s.bloomRadius = 1.2f; s.shadowRes = 2; s.shadowEvery = 2; s.shadowDist = 100.f; s.shadowMaskHalf = false; break;
+            s.casStrength = 0.50f; s.fxaaStrength = 0.90f; s.bloomRadius = 1.2f; s.shadowRes = 2; s.shadowEvery = 2; s.shadowDist = 100.f; s.shadowMaskHalf = false;
+            s.shadowPcss = true; s.shadowBlurOn = true; s.shadowCascades = 2;
+            s.deferredOn = true; s.deferredHalf = true; s.aoOn = true; s.aoMode = AO_HBAO; s.skylightOn = true; s.ambientOn = true;
+            s.contactOn = true; s.volFogOn = true; s.volGodrays = 0.8f; s.ssrOn = true; s.ssrDry = 0.12f; s.rainSurfOn = true; s.rainFallOn = true;
+            s.causticsOn = true; s.cloudsOn = false; s.pbrSkyOn = false; s.taaOn = false; s.fsrOn = false; break;
+        case Q_ULTRA:
+            s.autoExp = true; s.bloom = true; s.sunRays = true; s.lensFlare = true; s.cas = true; s.vignette = true;
+            s.shadows = true;                       // Ultra: 4 cascades, PCSS, full-res SSGI, volumetric clouds, PBR sky, TAA
+            s.casStrength = 0.50f; s.fxaaStrength = 0.90f; s.bloomRadius = 1.2f; s.shadowRes = 2; s.shadowEvery = 1; s.shadowDist = 140.f; s.shadowMaskHalf = false;
+            s.shadowPcss = true; s.shadowBlurOn = true; s.shadowCascades = 4;
+            s.deferredOn = true; s.deferredHalf = false; s.aoOn = true; s.aoMode = AO_SSGI; s.skylightOn = true; s.ambientOn = true;
+            s.contactOn = true; s.volFogOn = true; s.volGodrays = 1.0f; s.ssrOn = true; s.ssrDry = 0.18f; s.rainSurfOn = true; s.rainFallOn = true;
+            s.causticsOn = true; s.cloudsOn = true; s.pbrSkyOn = true; s.taaOn = true; s.fsrOn = false; s.fxaa = false; break;
     }
     ++g_worldGen;
 }
+
+int PS_QualityToSlider(int q) { return q == Q_LOW ? 0 : q == Q_MEDIUM ? 1 : q == Q_HIGH ? 2 : q == Q_ULTRA ? 3 : -1; }
+int PS_SliderToQuality(int i) { static const int k[4] = { Q_LOW, Q_MEDIUM, Q_HIGH, Q_ULTRA }; return k[i < 0 ? 0 : (i > 3 ? 3 : i)]; }
+
+// user presets (menu > Graphics > Presets: Save / Load / Delete): files/ProperGFX/presets/preset<slot>.ini, same format as the main ini
+static void PresetPath(const char* dir, int slot, char* out, size_t n) { snprintf(out, n, "%s/presets/preset%d.ini", dir, slot < 0 ? 0 : slot); }
+bool PS_PresetSave(const PSSettings& s, const char* dir, int slot)
+{
+    char d[600]; snprintf(d, sizeof(d), "%s/presets", dir); mkdir(d, 0777);
+    char p[640]; PresetPath(dir, slot, p, sizeof(p)); return PS_SaveSettings(s, p);
+}
+bool PS_PresetLoad(PSSettings& s, const char* dir, int slot)
+{
+    char p[640]; PresetPath(dir, slot, p, sizeof(p));
+    PSSettings t = s;                    // keep the button / menu placement of the current session
+    if (!PS_LoadSettings(t, p)) return false;
+    t.showButton = s.showButton; t.buttonX = s.buttonX; t.buttonY = s.buttonY; t.buttonScale = s.buttonScale; t.buttonOpacity = s.buttonOpacity; t.uiScale = s.uiScale;
+    s = t; ++g_worldGen; return true;
+}
+bool PS_PresetDelete(const char* dir, int slot) { char p[640]; PresetPath(dir, slot, p, sizeof(p)); return remove(p) == 0; }
+bool PS_PresetExists(const char* dir, int slot) { char p[640]; PresetPath(dir, slot, p, sizeof(p)); FILE* f = fopen(p, "r"); if (!f) return false; fclose(f); return true; }
 
 void PS_ApplyLook(PSSettings& s, int p)
 {
@@ -261,7 +332,7 @@ float PS_NightFactor(int h, int m)
 void PS_UpdateLive(PSSettings& s, float nf)
 {
     if (s.timeOfDay == 1) nf = 0.f; else if (s.timeOfDay == 2) nf = 1.f;
-    DN* all[] = { &s.hdrAmount, &s.exposure, &s.bloomIntensity, &s.contrast, &s.saturation, &s.vignetteStrength, &s.fogDensity };
+    DN* all[] = { &s.hdrAmount, &s.exposure, &s.bloomIntensity, &s.contrast, &s.saturation, &s.vignetteStrength, &s.fogDensity, &s.volFogDensity };
     for (DN* d : all) d->v = d->day + (d->night - d->day) * nf;
 }
 
@@ -273,4 +344,58 @@ void PS_LutDir(const PSSettings& s, const char* base, char* out, int n)
     else if (f[0] == '/') snprintf(out, n, "%s", f);
     else snprintf(out, n, "%s/%s", base, f);
     int l = (int)strlen(out); while (l > 1 && out[l - 1] == '/') out[--l] = 0;
+}
+
+// 1.5.0 public API: set / get one ini value by section + key (same syntax as the ini; ".Day" / ".Night" suffixes allowed)
+bool PS_SetValue(PSSettings& s, const char* sec, const char* key0, const char* val)
+{
+    if (!sec || !key0 || !val) return false;
+    char key[96]; snprintf(key, sizeof(key), "%s", key0);
+    bool isDay = false, isNight = false; size_t kl = strlen(key);
+    if (kl > 4 && !strcasecmp(key + kl - 4, ".Day")) { isDay = true; key[kl - 4] = 0; }
+    else if (kl > 6 && !strcasecmp(key + kl - 6, ".Night")) { isNight = true; key[kl - 6] = 0; }
+    for (int i = 0; i < kFieldCount; ++i)
+    {
+        const Field& f = kFields[i];
+        if (strcasecmp(f.sec, sec) || strcasecmp(f.key, key)) continue;
+        char* base = (char*)&s + f.off;
+        switch (f.t)
+        {
+            case FT_BOOL:  *(bool*)base = atoi(val) != 0 || !strcasecmp(val, "true") || !strcasecmp(val, "on"); break;
+            case FT_INT:   *(int*)base = atoi(val); break;
+            case FT_FLOAT: case FT_FLOAT_LEGACY: *(float*)base = (float)atof(val); break;
+            case FT_STR:   snprintf(base, (size_t)f.n, "%s", val); break;
+            case FT_ENUM:  *(int*)base = EnumFind(f, val); break;
+            case FT_DN:    { DN* d = (DN*)base; float v = (float)atof(val); if (isNight) d->night = v; else if (isDay) d->day = v; else d->day = d->night = v; break; }
+        }
+        Sanitize(s); ++g_worldGen;
+        return true;
+    }
+    return false;
+}
+
+bool PS_GetValue(const PSSettings& s, const char* sec, const char* key0, char* out, int outLen)
+{
+    if (!sec || !key0 || !out || outLen <= 0) return false;
+    char key[96]; snprintf(key, sizeof(key), "%s", key0);
+    bool isNight = false; size_t kl = strlen(key);
+    if (kl > 4 && !strcasecmp(key + kl - 4, ".Day")) key[kl - 4] = 0;
+    else if (kl > 6 && !strcasecmp(key + kl - 6, ".Night")) { isNight = true; key[kl - 6] = 0; }
+    for (int i = 0; i < kFieldCount; ++i)
+    {
+        const Field& f = kFields[i];
+        if (strcasecmp(f.sec, sec) || strcasecmp(f.key, key)) continue;
+        const char* base = (const char*)&s + f.off;
+        switch (f.t)
+        {
+            case FT_BOOL:  snprintf(out, (size_t)outLen, "%d", *(const bool*)base ? 1 : 0); break;
+            case FT_INT:   snprintf(out, (size_t)outLen, "%d", *(const int*)base); break;
+            case FT_FLOAT: case FT_FLOAT_LEGACY: snprintf(out, (size_t)outLen, "%.4f", *(const float*)base); break;
+            case FT_STR:   snprintf(out, (size_t)outLen, "%s", base); break;
+            case FT_ENUM:  { int v = *(const int*)base; snprintf(out, (size_t)outLen, "%s", (v >= 0 && v < f.n) ? f.names[v] : "0"); break; }
+            case FT_DN:    { const DN* d = (const DN*)base; snprintf(out, (size_t)outLen, "%.4f", isNight ? d->night : d->day); break; }
+        }
+        return true;
+    }
+    return false;
 }

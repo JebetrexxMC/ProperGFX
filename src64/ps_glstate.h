@@ -8,7 +8,7 @@ typedef void (*PS_BindVAOFn)(GLuint);
 
 struct PSGLState
 {
-    enum { NUNITS = 5, NATTR = 8 };
+    enum { NUNITS = 8, NATTR = 8 };
 
     GLint prog = 0, arrayBuf = 0, elemBuf = 0, fbo = 0, rbo = 0, activeTex = 0, vao = 0;
     GLint tex[NUNITS] = {0};

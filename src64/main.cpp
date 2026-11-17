@@ -1,4 +1,4 @@
-// Proper GFX Mobile (v1.4.8, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
+// Proper GFX Mobile (v1.5.0, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
 // Every shader is a .glsl file of the source tree (shaders/{vertex,fragment}, SAShaderL-style layout and uniforms) compiled INTO the .so, see ps_glsl.h.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
@@ -20,6 +20,8 @@
 #include "ps_log.h"
 #include "ps_lut.h"
 #include "ps_glsl.h"
+#include "ps_deferred.h"
+#include "ps_api.h"
 #include "sautils/isautils.h"
 #include <dirent.h>
 #include <strings.h>
@@ -38,7 +40,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.8, ProperGFX)
+MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.5.0, ProperGFX)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -59,6 +61,16 @@ static float g_farClip = 800.f;              // last RwCameraSetFarClipPlane    
 static volatile int g_entityModel = -1;      // CEntity::m_nModelIndex of the last CEntity::Render -> EntityModel
 static void** g_pModelInfo = nullptr;        // CModelInfo::ms_modelInfoPtrs[20000]
 static bool*  g_pUserPause = nullptr;        // CTimer::m_UserPause (the pause menu is open)
+static bool*  g_pCodePause = nullptr;        // 1.5.0: CTimer::m_CodePause (menus / the game paused by code - libZyZGFX64 checks both)
+static float* g_pRain = nullptr;             // 1.5.0: CWeather::Rain (falling rain amount)
+static void* (*g_findPlayerVehicle)(int, bool) = nullptr;   // 1.5.0: FindPlayerVehicle - volumetric headlights
+// 1.5.0 menu fix: the post effects run INSIDE the frame (render-queue event before CPostEffects::MobileRender / after RenderScene) on the
+// game's scene target - the HUD, radar, main menu, pause menu and our floating button are drawn after that and never get tonemap / contrast.
+static bool g_postHooked = false;            // CPostEffects::MobileRender found
+static bool g_sceneThisFrame = false;        // the after-scene event ran since the last swap (render thread)
+static bool g_fxThisFrame = false;           // FX ran inside the frame since the last swap
+static int  g_eventFxMiss = 0;               // gameplay frames in a row without in-frame FX (-> swap-time fallback)
+static int  g_sw = 0, g_sh = 0;              // EGL surface size
 // 1.4.6 gameplay detection: the 3D world is rendered (RenderScene) only in gameplay - never in the main menu, the pause menu or a loading screen
 static std::atomic<unsigned> g_sceneCalls{0};
 static unsigned g_sceneSeen = 0; static int g_noSceneFrames = 1000;
@@ -125,7 +137,7 @@ static void OnFrame()
     if (ctx == EGL_NO_CONTEXT) return;
     if (ctx != g_ctx)
     {
-        if (g_ctx != EGL_NO_CONTEXT) { FX_ContextLost(); UI_ContextLost(); LUT_ContextLost(); World_ClearProgramCache(); Scene_ContextLost(); Shadow_ContextLost(); }
+        if (g_ctx != EGL_NO_CONTEXT) { FX_ContextLost(); UI_ContextLost(); LUT_ContextLost(); World_ClearProgramCache(); Scene_ContextLost(); Shadow_ContextLost(); Deferred_ContextLost(); }
         g_ctx = ctx;
         PSGLState::InitCaps();
         g_initDone = false;
@@ -146,7 +158,7 @@ static void OnFrame()
         // Post effects, the floating button / menu and the shadows only run in gameplay (1.4.6: they were also drawn over the main menu)
         const unsigned sc = g_sceneCalls.load(std::memory_order_relaxed);
         if (sc != g_sceneSeen) { g_sceneSeen = sc; g_noSceneFrames = 0; } else if (g_noSceneFrames < 1000) ++g_noSceneFrames;
-        const bool paused = g_pUserPause && *g_pUserPause;
+        const bool paused = (g_pUserPause && *g_pUserPause) || (g_pCodePause && *g_pCodePause);
         g_inGame = (!g_sceneHooked || g_noSceneFrames < 8) && !paused;
     }
 
@@ -156,7 +168,38 @@ static void OnFrame()
     float wet = g_pWetRoads ? *g_pWetRoads : 0.f;
     World_SetEnabled(g_cfg.enabled);
     g_cfg.shadowMethod = 0;                 // 1.4.6: always Deferred (like libZyZGFX64)
+    g_sw = w; g_sh = h;
+    // 1.5.0: the deferred lighting and the in-frame post effects need the render-queue events + the frame's camera even with shadows off
+    Shadow_SetCameraService(g_cfg.enabled && (Deferred_Wanted(g_cfg) || g_cfg.postFx));
     Shadow_Configure(g_cfg, FX_Stats().adaptiveLevel);
+    {   // deferred lighting inputs for the next frame (time, weather, sun, the player's headlights)
+        PSDeferredFrame df;
+        df.time = (float)fmod(accum, 3600.0); df.dt = dt; df.night = nf;
+        df.wet = wet < 0.f ? 0.f : (wet > 1.f ? 1.f : wet);
+        df.rain = g_pRain ? *g_pRain : 0.f; if (!isfinite(df.rain)) df.rain = 0.f;
+        df.underwater = g_pUnderWater ? *g_pUnderWater : 0.f;
+        if (g_pVectorToSun && g_pSunIndex) { int idx = *g_pSunIndex; if (idx >= 0 && idx < 16) { const float* p = g_pVectorToSun + idx * 3; if (isfinite(p[0]) && isfinite(p[1]) && isfinite(p[2])) { df.sun[0] = p[0]; df.sun[1] = p[1]; df.sun[2] = p[2]; } } }
+        if (g_cfg.headlightsOn && g_findPlayerVehicle && nf > 0.2f)
+        {   // CVehicle: CPlaceable::m_matrix at +0x18 (right @0, forward @0x10, up @0x20, pos @0x30)
+            const char* v = (const char*)g_findPlayerVehicle(-1, false);
+            const char* m = (v && Readable(v + 0x18, 8)) ? *(const char* const*)(v + 0x18) : nullptr;
+            if (m && Readable(m, 0x40))
+            {
+                const float* R = (const float*)m; const float* F = (const float*)(m + 0x10); const float* U = (const float*)(m + 0x20); const float* P = (const float*)(m + 0x30);
+                if (isfinite(P[0]) && isfinite(F[0]) && fabsf(F[0] * F[0] + F[1] * F[1] + F[2] * F[2] - 1.f) < 0.1f)
+                {
+                    for (int i = 0; i < 3; ++i)
+                    {
+                        df.hl0[i] = P[i] + F[i] * 2.3f - R[i] * 0.65f + U[i] * 0.05f;
+                        df.hl1[i] = P[i] + F[i] * 2.3f + R[i] * 0.65f + U[i] * 0.05f;
+                        df.hlDir[i] = F[i] - U[i] * 0.08f;
+                    }
+                    df.headlights = true;
+                }
+            }
+        }
+        Deferred_SetFrame(df);
+    }
     Scene_SetScreenSize(w, h);
     {   // the game's own sun vector (points TOWARD the sun, world space, z up) - the same vector the sun disc / coronas use
         float sv[3] = { 0.f, 0.f, 1.f }; bool ok = false;
@@ -199,9 +242,16 @@ static void OnFrame()
         memcpy(g.user, g_cfg.glslParam, sizeof(g.user));
         FX_SetGlobals(g);
     }
-    if (g_inGame && g_cfg.enabled && g_cfg.postFx && !FX_Failed()) FX_Render(g_cfg, fi);
+    {   // 1.5.0: normally FX already ran inside the frame (OnSceneEvent). Only when the render-queue events do not work on this game build
+        // (or never reach the post point) the old swap-time path runs - gameplay only, as before.
+        if (g_inGame && g_fxThisFrame) g_eventFxMiss = 0; else if (g_inGame && g_eventFxMiss < 1000) ++g_eventFxMiss;
+        const bool fallback = !Scene_EventsReady() || g_eventFxMiss > 30;
+        if (fallback && g_inGame && g_cfg.enabled && g_cfg.postFx && !FX_Failed()) { fi.targetFbo = 0; FX_Render(g_cfg, fi); if (Deferred_PostWanted(g_cfg)) Deferred_PostAA(g_cfg, 0, w, h); }
+        g_fxThisFrame = false; g_sceneThisFrame = false;
+        PSApi_Tick();
+    }
 
-    PSUIStatus st; st.dir = g_dir; st.fxStatus = FX_Status(); st.gameInfo = PS_GAME_INFO; st.patchedShaders = World_PatchedCount();
+    PSUIStatus st; st.deferred = &Deferred_Stats(); st.dir = g_dir; st.fxStatus = FX_Status(); st.gameInfo = PS_GAME_INFO; st.patchedShaders = World_PatchedCount();
     st.sunTracked = g_sunTracked; st.lutLoaded = FX_LutLoaded(); st.fx = &FX_Stats();
     st.scene = &Scene_Stats();
     st.shadow = &Shadow_Stats(); st.shadowTex = Shadow_Texture(); st.shadowReceivers = World_ShadowReceiverCount(); st.build = &World_BuildStats();
@@ -287,6 +337,30 @@ DECL_HOOKi(RQShader_BuildSource, unsigned flags, const char** pxl, const char** 
     return r;
 }
 
+// 1.5.0: Proper GFX's post effects on the scene target, inside the frame (render thread, GL state saved by the caller)
+static void RunFrameFx()
+{
+    GLint fb = 0; glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fb);
+    GLuint dt = 0; int w = 0, h = 0;
+    if (!Scene_DepthOf(fb, dt, w, h) || w <= 0 || h <= 0)
+    {
+        if (fb == 0) { w = g_sw; h = g_sh; }
+        else { GLint vp[4] = {0, 0, 0, 0}; glGetIntegerv(GL_VIEWPORT, vp); w = vp[2]; h = vp[3]; }
+    }
+    if (w < 16 || h < 16) return;
+    static auto last = std::chrono::steady_clock::now();
+    static double accum = 0.0;
+    auto now = std::chrono::steady_clock::now();
+    float d = std::chrono::duration<float>(now - last).count(); last = now;
+    if (d > 0.25f) d = 0.25f; if (d < 0.0005f) d = 0.0005f; accum += d;
+    PSFrameInfo fi; fi.w = w; fi.h = h; fi.time = (float)fmod(accum, 3600.0); fi.dt = d;
+    float uw = g_pUnderWater ? *g_pUnderWater : 0.f; fi.underwater = uw < 0.f ? 0.f : (uw > 1.f ? 1.f : uw);
+    fi.sunVis = ComputeSun(fi.sunX, fi.sunY);
+    fi.targetFbo = (unsigned)fb; fi.cocTex = Deferred_CocTexture();
+    if (FX_Render(g_cfg, fi)) g_fxThisFrame = true;
+    if (Deferred_PostWanted(g_cfg)) Deferred_PostAA(g_cfg, (GLuint)fb, w, h);
+}
+
 // ---------------------------------------------------------------- 1.4.3 deferred shadows (the libZyZyGFX64 way, see ps_scene.h)
 // RenderScene() runs on the GAME thread and only records commands; Scene_PostEvent puts our own command before/after it into the render queue,
 // so OnSceneEvent runs on the render thread exactly when the 3D world is finished and nothing 2D is drawn yet.
@@ -295,14 +369,37 @@ static void OnSceneEvent(int ev, int arg)
     if (ev == PS_EV_TAG) { Shadow_SetDrawKind(arg); return; }        // render thread: the kind of the entity whose draws follow
     if (g_ctx == EGL_NO_CONTEXT || eglGetCurrentContext() != g_ctx) return;
     if (ev == PS_EV_BEFORE_SCENE) { Scene_OnTargetSelected(); Shadow_BeginScene(); return; }
-    if (ev == PS_EV_AFTER_SCENE) Shadow_SetDrawKind(PS_KIND_NONE);
-    if (ev == PS_EV_AFTER_SCENE && Shadow_AfterSceneNeeded())
+    if (ev == PS_EV_AFTER_SCENE)
     {
+        Shadow_SetDrawKind(PS_KIND_NONE);
+        if (g_sceneThisFrame) return;                                   // the world is rendered once per frame; extra RenderScene calls (mirrors) are ignored
+        g_sceneThisFrame = true;
+        const bool def = g_cfg.enabled && Deferred_Wanted(g_cfg);
+        const bool fxHere = !g_postHooked && g_cfg.enabled && g_cfg.postFx && !FX_Failed();
+        if (!Shadow_AfterSceneNeeded() && !def && !fxHere) return;
         PSGLState gs; gs.Save();
-        Shadow_AfterScene();
+        if (Shadow_AfterSceneNeeded()) Shadow_AfterScene();
+        if (def) Deferred_AfterScene(g_cfg, FX_Stats().adaptiveLevel);
+        if (fxHere) RunFrameFx();                                      // no CPostEffects::MobileRender symbol: right after the world
+        gs.Restore();
+        World_OnShaderSelected();
+        return;
+    }
+    if (ev == PS_EV_POST)
+    {   // the 3D world + its effects are done, nothing 2D is drawn yet
+        if (!g_sceneThisFrame || g_fxThisFrame) return;                // menus / loading screens: no world was rendered this frame
+        if (!(g_cfg.enabled && g_cfg.postFx && !FX_Failed())) return;
+        PSGLState gs; gs.Save();
+        RunFrameFx();
         gs.Restore();
         World_OnShaderSelected();
     }
+}
+
+DECL_HOOKv(CPostEffects_MobileRender)
+{
+    Scene_PostEvent(PS_EV_POST);
+    CPostEffects_MobileRender();
 }
 
 DECL_HOOKv(RenderScene, bool b)
@@ -623,6 +720,9 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     SET_TO(g_pTimeMs,      aml->GetSym(hGame, "_ZN6CTimer22m_snTimeInMillisecondsE"));
     SET_TO(g_pModelInfo,   aml->GetSym(hGame, "_ZN10CModelInfo16ms_modelInfoPtrsE"));
     SET_TO(g_pUserPause,   aml->GetSym(hGame, "_ZN6CTimer11m_UserPauseE"));
+    SET_TO(g_pCodePause,   aml->GetSym(hGame, "_ZN6CTimer11m_CodePauseE"));
+    SET_TO(g_pRain,        aml->GetSym(hGame, "_ZN8CWeather4RainE"));
+    SET_TO(g_findPlayerVehicle, aml->GetSym(hGame, "_Z17FindPlayerVehicleib"));
     Shadow_SetGameCamera((const void*)aml->GetSym(hGame, "TheCamera"));
     Shadow_SetAlphaTestState((const int*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE7curFunc"),
                              (const float*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE6curVal"));
@@ -635,6 +735,10 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     if (aml->GetSym(hGame, "_Z23RwCameraSetFarClipPlaneP8RwCameraf")) HOOKSYM(RwCameraSetFarClipPlane, hGame, "_Z23RwCameraSetFarClipPlaneP8RwCameraf");
     if (aml->GetSym(hGame, "_ZN7CEntity6RenderEv")) HOOKSYM(CEntity_Render, hGame, "_ZN7CEntity6RenderEv");
     Scene_SetHandler(OnSceneEvent);
+    if (aml->GetSym(hGame, "_ZN12CPostEffects12MobileRenderEv")) { HOOKSYM(CPostEffects_MobileRender, hGame, "_ZN12CPostEffects12MobileRenderEv"); g_postHooked = true; }
+    PS_FileLog("post effects: %s", g_postHooked ? "in-frame before CPostEffects::MobileRender (menus / HUD untouched)" : "in-frame after RenderScene (CPostEffects::MobileRender not found)");
+    PSApi_Init(&g_cfg, g_dir, g_iniPath);
+    RegisterInterface("ProperGFX", PSApi_Get());
     static void* s_hGame; s_hGame = hGame;
     if (aml->GetSym(hGame, "_Z11RenderSceneb")) { HOOKSYM(RenderScene, hGame, "_Z11RenderSceneb"); }   // always: also the gameplay detection
     else PS_FileLog("RenderScene not found - effects / menu button are shown everywhere (no gameplay detection)");

@@ -59,5 +59,20 @@ void   Shadow_ContextLost();
 void   Shadow_Shutdown();
 const PSShadowStats& Shadow_Stats();
 
+// 1.5.0 camera service for the deferred lighting passes (ps_deferred.cpp): the frame's validated camera + scene depth
+struct PSFrameCam
+{
+    bool  ok = false, haveFog = false, mapOk = false;
+    GLint fbo = 0; GLuint depthTex = 0; int w = 0, h = 0;
+    float view[16], proj[16], cam[3] = {0, 0, 0}, fog[3] = {0, 0, 0};
+    float ivp[16];            // ndc -> (world - camera)
+    float vp[16];             // (world - camera) -> clip
+    GLuint mapTex = 0;        // a sun shadow cascade (compare sampler) + its matrix relative to the camera: volumetric god rays
+    float lvp[16]; float mapR = 0.f, depthRange = 520.f, shadowFade = 0.f;
+};
+void   Shadow_SetCameraService(bool on);                       // record the camera even with shadows off
+bool   Shadow_SceneWanted();
+bool   Shadow_GetFrameCamera(PSFrameCam& out);                 // render thread, after-scene / post events
+
 // exposed for tests
 void   Shadow_BuildLightMatrix(const float sunDir[3], const float center[3], float radius, float depthRange, int res, float outColMajor[16]);

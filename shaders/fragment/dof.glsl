@@ -1,15 +1,18 @@
 // [DepthOfField] GTA SA Mobile has no readable depth buffer, so focus is a screen region:
 //   Mode 0 = Tilt-shift  (sharp horizontal band at Focus position, blur above / below - miniature look)
 //   Mode 1 = Center focus (sharp circle around the screen point (0.5, Focus), blur toward the edges - like a lens focused on what you look at)
+//   Mode 2 = Adaptive (1.5.0): real depth of field from the scene depth with auto focus (ps_deferred.cpp: def_focus + def_coc -> uCoc)
 // Underwater (UnderWaterness > 0) adds an all-over blur ([DepthOfField] UnderwaterBlur).
 // uDof = 1/8-res blurred scene. uDofA = (mode, focus position, focus width, strength)  uDofB = (bokeh boost, radius, underwater blur, 0)
 uniform sampler2D uDof;
 uniform vec4 uDofA;
 uniform vec4 uDofB;
+uniform sampler2D uCoc;      // Adaptive: circle of confusion (r), black when the scene depth is not available
 
 float dofAmount(vec2 uv, vec2 res){
   float m;
   if (uDofA.x < 0.5) m = smoothstep(uDofA.z, uDofA.z + 0.28, abs(uv.y - uDofA.y));
+  else if (uDofA.x > 1.5) m = texture2D(uCoc, uv).r;
   else {
     vec2 d = (uv - vec2(0.5, uDofA.y)) * vec2(res.x / res.y, 1.0);
     m = smoothstep(uDofA.z, uDofA.z + 0.45, length(d));

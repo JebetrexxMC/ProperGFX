@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.5.0
+* Menu fix (both builds): effects no longer change the main menu, the pause menu or the area behind the floating menu.
+  * 64-bit: the effects run inside the frame. `AFTER_SCENE` (render-queue event after RenderScene) runs shadows + deferred lighting, and a hook on `CPostEffects::MobileRender` runs the post-process chain before the game's own post effects, HUD and menus. The old swap path is only a fallback when the in-frame events never arrive (30 gameplay frames).
+  * both builds: paused = `CTimer::m_UserPause || CTimer::m_CodePause`.
+* New menu style (both builds): Firestorm Preferences layout, neutral dark panel, plain white accents (selected = white fill + black text).
+  * 64-bit: left category list (Graphics, Lighting, Sky & Clouds, Shadows, HDR & Fog, Water & Rain, Post Process, Anti-aliasing, Depth of Field, Artistic, GLSL Shaders, Interface, Status, Feature Guide); Graphics tabs General / Rendering / Post Process / Depth of Field; quality slider Low / Mid / High / Ultra; presets 1-8; Reset to defaults / OK / Cancel.
+* Floating button (both builds): a rounded box with a vector icon drawn with ImDrawList (gear ring + half-filled disc). No texture or text. It is white while the menu is open.
+* 64-bit deferred screen-space lighting (`ps_deferred.cpp`, GLSL ES 3.00, `def_common / def_ao / def_bilateral / def_volume / def_composite / def_focus / def_coc / def_taa / def_fsr.glsl`):
+  * [AmbientOcclusion] SSAO / HBAO / SSGI at half resolution with bilateral upsample; [Skylight]; [AmbientLighting] tricoloured ambient; [ContactShadows].
+  * [VolumetricFog] height fog + godrays ray-marched through the sun shadow map; [VolumetricHeadlights] (experimental, player vehicle at night).
+  * [VolumetricClouds], [PBRSky], [Aurora] on the sky pixels.
+  * [SSR] wet floors / puddles / flat shiny surfaces; [WorldRain] puddles + ripples; [RainFall] rain streaks; [WaterCaustics] on the sea floor.
+  * [TAA] depth reprojection + neighbourhood clamp; [FSR] EASU-style edge reconstruction + RCAS; adaptive DoF from the depth (auto focus).
+  * [DynamicShadows] `Cascades = 2 | 4`, `PCSS`, `SoftMaskBlur` (gaussian blur of the mask).
+  * Normals from depth are taken at exact texel centres, so there are no striped AO / lighting on flat ground and walls. SSR misses keep the pixel's own shading, so puddles do not erase shadows.
+* 64-bit public API: `propergfx_api.h` (AML interface `ProperGFX` + exported `ProperGFX_*` functions; thread safe, applied on the render thread). `PS_SetValue` / `PS_GetValue` by ini section / key.
+* FEATURES.md rewritten: honest status of every requested feature.
+
 ## 1.4.8
 * 64-bit: big shadows that no object casts ("ghost shadows everywhere"):
   * only draws made by an object (`CEntity::Render` tags) cast. Clouds, sky, water, rain, particles, coronas, skid marks and the game's own shadow polygons come from shared immediate-mode buffers that are refilled many times a frame; replayed after the scene they held other geometry and cast random big shadows.

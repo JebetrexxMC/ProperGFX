@@ -1,4 +1,4 @@
-# Proper GFX Mobile 1.4.8 (AML mod for GTA San Andreas Android)
+# Proper GFX Mobile 1.5.0 (AML mod for GTA San Andreas Android)
 
 | Build | Game | ABI | File | Source tree | Shaders |
 |---|---|---|---|---|---|
@@ -14,6 +14,17 @@ Formerly *Proper Shader Mobile* (`libProperShader32/64.so`).
 3. Start the game. Everything lives in `files/ProperGFX/`; settings are `files/ProperGFX/TYFMC.ProperGFX.ini`.
 
 Upgrading from 1.3: the old `files/ProperShader/` folder is renamed to `files/ProperGFX/` and `settings.ini` to `TYFMC.ProperGFX.ini` automatically (your settings are kept).
+
+## 1.5.0 - deferred screen-space lighting, menu fix, new menu
+* **No more effects in the main menu / pause menu / over the floating menu.** Before 1.5.0 every effect ran at buffer swap on the final image, on top of the HUD and the menus. Now the 64-bit build runs them inside the frame (after the 3D scene, before `CPostEffects::MobileRender`, the libZyZGFX64 way), so the HUD and menus stay untouched. Both builds stop the effects while `CTimer::m_UserPause` or `m_CodePause` is set.
+* **New menu** in the Firestorm "Preferences" layout with plain white accents: categories on the left, tabs (General / Rendering / Post Process / Depth of Field), label / slider / value rows, presets 1-8, Reset / OK / Cancel (Cancel restores the values from when the menu opened).
+* **Floating button** is a box with a vector Proper GFX symbol (gear + half-lit disc). No texture, no text. It shrinks a little when idle.
+* **64-bit deferred screen-space lighting** from the scene depth (`src64/ps_deferred.cpp`, `shaders/fragment/def_*.glsl`): SSAO / HBAO / SSGI, skylight, tricoloured ambient, contact shadows, volumetric height fog with godrays through the shadow map, experimental volumetric headlights, volumetric clouds, PBR sky, aurora, SSR (wet floors + puddles), world rain puddles / ripples, falling rain, sea-floor caustics, TAA, FSR 1 style sharpening, depth-based adaptive DoF, 4 shadow cascades + PCSS + blurred soft mask.
+* **Public API for other mods** (64-bit): `src64/propergfx_api.h`, see [API.md](API.md).
+* Full status of every requested feature (what is done, approximated, or not possible on this engine): [FEATURES.md](FEATURES.md). New ini sections: [docs/INI.md](docs/INI.md).
+
+![menu](docs/preview_menu_v15.png)
+![button](docs/preview_button_v15.png)
 
 ## 1.4.8 - no shadows from nothing
 * Only real objects cast (no clouds / water / effects / LOD models), and slopes turned away from a low sun are no longer darkened as a whole.

@@ -24,6 +24,8 @@ bad = 0
 bad += not check('fullscreen', expand('vertex/fullscreen.glsl', set()), 'vert')
 bad += not check('caster_v', expand('vertex/shadow_caster.glsl', set()), 'vert')
 bad += not check('caster_f', expand('fragment/shadow_caster.glsl', set()), 'frag')
+for f in ['def_ao', 'def_bilateral', 'def_volume', 'def_composite', 'def_focus', 'def_coc', 'def_taa', 'def_fsr', 'shadow_blur', 'shadow_mask']:
+    bad += not check(f, expand('fragment/%s.glsl' % f, set()), 'frag')
 for f in ['fxaa_pass', 'bloom_bright', 'downsample', 'blur_gauss', 'autoexposure', 'custom']:
     bad += not check(f, expand('fragment/%s.glsl' % f, set()), 'frag')
 FX = ['FX_AA','FX_CA','FX_CAS','FX_DOF','FX_OUTLINE','FX_CEL','FX_AUTOEXP','FX_BLOOM','FX_RAYS','FX_FLARE','FX_GLOW','FX_GOLDEN','FX_LUT','FX_UNDER','FX_VHS','FX_VIGNETTE','FX_GRAIN','FX_DITHER','FX_GRADE','FX_GAMMA']

@@ -15,6 +15,8 @@
 #include "../src64/ps_glsl.h"
 #include "../src64/ps_glstate.h"
 #include "../src64/ps_scene.h"
+#include "../src64/ps_deferred.h"
+#include "../src64/ps_fx.h"
 
 static int fails = 0;
 #define CHECK(c, msg) do { bool ok_ = (c); printf("%s  %s\n", ok_ ? "PASS" : "FAIL", msg); if (!ok_) ++fails; } while (0)
@@ -165,6 +167,7 @@ static void MockMarker()   // the game writes its own rqDebugMarker command (id 
     *(char**)(g_rqMem + 0x420) = wp + 12; *(char**)(g_rqMem + 0x418) = wp + 12;
 }
 
+static bool g_defOn = false; static PSSettings* g_defCfg = nullptr;
 int main()
 {
     GLSL_Init(""); World_LoadSnippets();
@@ -223,7 +226,7 @@ int main()
     Scene_SetHandler([](int ev, int arg) {
         if (ev == PS_EV_TAG) { Shadow_SetDrawKind(arg); return; }
         if (ev == PS_EV_BEFORE_SCENE) { Scene_OnTargetSelected(); Shadow_BeginScene(); }
-        if (ev == PS_EV_AFTER_SCENE && Shadow_AfterSceneNeeded()) { PSGLState gs; gs.Save(); Shadow_AfterScene(); gs.Restore(); }
+        if (ev == PS_EV_AFTER_SCENE && (Shadow_AfterSceneNeeded() || g_defOn)) { PSGLState gs; gs.Save(); if (Shadow_AfterSceneNeeded()) Shadow_AfterScene(); if (g_defOn) Deferred_AfterScene(*g_defCfg, 0); gs.Restore(); }
     });
     PSSettings st; st.shadowMethod = 0; st.shadowEvery = 1; st.shadowStrength = 0.6f; st.shadowRes = 2; st.shadowDist = 60.f; st.sunSmoothing = 1.0f; st.shadowTint = 0.f;
     bool shadowsOn = true;
@@ -234,6 +237,7 @@ int main()
     Perspective(skyProj, 0.80f, (float)W / H, 1.0f, 3000.f);
     auto frame = [&](const float sun[3]) {
         PSSettings cur = st; cur.shadows = shadowsOn;
+        Shadow_SetCameraService(g_defOn);
         Shadow_Configure(cur, 0); Shadow_SetSunHint(sun, true); Scene_SetScreenSize(W, H);
         glBindFramebuffer(GL_FRAMEBUFFER, sceneFbo);                 // rqTargetSelect
         Scene_OnTargetSelected();                                     // our hook right after it
@@ -398,6 +402,48 @@ int main()
         CHECK(g0 < 0.62f && g1 > 0.97f && Shadow_Stats().camRejected >= 1, "the sky's view (no translation) is rejected against TheCamera, the mask stays in place");
         Shadow_SetGameCamera(nullptr);
         skyOn = false;
+    }
+    // ---------------- 1.5.0: 4 cascades + PCSS + soft mask, then the deferred lighting passes on the scene target ----------------
+    {
+        std::vector<unsigned char> base, c4, def, defOff;
+        for (int f = 0; f < 3; ++f) frame(sun); grab(base);
+        st.shadowCascades = 4; st.shadowPcss = true; st.shadowBlurOn = true;
+        for (int f = 0; f < 4; ++f) frame(sun); grab(c4);
+        const float q0 = at(c4, pShadow) / at(without, pShadow), q1 = at(c4, pLit) / at(without, pLit);
+        printf("      4 cascades + PCSS + blur: behind house %.2f, open ground %.2f (glerr 0x%x)\n", q0, q1, glGetError());
+        CHECK(q0 < 0.65f && q1 > 0.95f, "1.5.0: 4 cascades + PCSS + gaussian soft mask still shadow correctly");
+        static PSSettings ds; ds = st; ds.deferredOn = true; ds.aoOn = true; ds.aoMode = AO_SSGI; ds.skylightOn = true; ds.ambientOn = true; ds.contactOn = true;
+        ds.volFogOn = true; ds.ssrOn = true; ds.rainSurfOn = true; ds.causticsOn = true; ds.cloudsOn = true; ds.pbrSkyOn = true; ds.auroraOn = true;
+        ds.rainFallOn = true; ds.headlightsOn = true; ds.dofMode = 2; ds.tiltShift = true; ds.taaOn = true; ds.fsrOn = true;
+        if (const char* m = getenv("DEFMASK")) { int k = atoi(m);   // debugging: enable only some passes
+            ds.aoOn = k & 1; ds.contactOn = k & 2; ds.ssrOn = k & 4; ds.rainSurfOn = k & 8; ds.volFogOn = k & 16; ds.skylightOn = k & 32; ds.ambientOn = k & 64; ds.taaOn = ds.fsrOn = k & 128; }
+        g_defCfg = &ds; g_defOn = true;
+        PSDeferredFrame df; df.time = 12.f; df.rain = 0.8f; df.wet = 0.8f; df.night = 0.f; df.sun[0] = sun[0]; df.sun[1] = sun[1]; df.sun[2] = sun[2];
+        df.headlights = true; df.hl0[0] = 2.f; df.hl1[0] = 3.f; df.hlDir[1] = 1.f;
+        for (int f = 0; f < 5; ++f) { Deferred_SetFrame(df); frame(sun); }
+        grab(def);
+        const PSDeferredStats& d = Deferred_Stats();
+        printf("      deferred: es3=%d ready=%d failed=%d frames=%u noCam=%u passes=%d ao=%d vol=%d comp=%d coc=%d note=%s glerr=0x%x\n",
+               d.es3, d.ready, d.failed, d.frames, d.noCamera, d.passes, d.ao, d.vol, d.composite, d.coc, d.note, glGetError());
+        CHECK(d.es3 && d.ready && !d.failed && d.frames >= 4 && d.ao && d.vol && d.composite, "1.5.0: every deferred pass compiles and runs on the scene target");
+        CHECK(Deferred_CocTexture() != 0 && d.coc, "1.5.0: adaptive DoF gets a circle-of-confusion texture from the scene depth");
+        double diff = 0; int bad = 0; for (size_t i = 0; i < def.size(); i += 4) { diff += fabs((double)def[i] - c4[i]) + fabs((double)def[i + 1] - c4[i + 1]); }
+        diff /= (def.size() / 4);
+        printf("      mean change by the deferred passes: %.2f\n", diff);
+        CHECK(diff > 1.0 && diff < 120.0, "1.5.0: the deferred lighting visibly changes the image without blowing it out");
+        { // nothing outside: pixels stay finite / not all black
+          size_t black = 0; for (size_t i = 0; i < def.size(); i += 4) if (def[i] < 3 && def[i + 1] < 3 && def[i + 2] < 3) ++black;
+          CHECK(black < def.size() / 4 / 3, "1.5.0: no black-out (NaN / bad depth) after the deferred passes"); (void)bad; }
+        // post AA on the scene target (TAA + FSR), state restored
+        { glBindFramebuffer(GL_FRAMEBUFFER, sceneFbo); glUseProgram(prog); glViewport(0, 0, W, H);
+          PSGLState gs; gs.Save(); Deferred_PostAA(ds, sceneFbo, W, H); gs.Restore();
+          GLint p = 0, fb = 0; glGetIntegerv(GL_CURRENT_PROGRAM, &p); glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fb);
+          CHECK(p == (GLint)prog && fb == (GLint)sceneFbo && glGetError() == 0, "1.5.0: TAA / FSR on the scene target leave the game's GL state intact");
+          CHECK(Deferred_Stats().taa && Deferred_Stats().fsr, "1.5.0: TAA and FSR ran"); }
+        { FILE* f1 = fopen("/tmp/def15_on.rgba", "wb"); fwrite(def.data(), 1, def.size(), f1); fclose(f1); FILE* f2 = fopen("/tmp/def15_off.rgba", "wb"); fwrite(c4.data(), 1, c4.size(), f2); fclose(f2); }
+        g_defOn = false; ds.deferredOn = false; for (int f = 0; f < 2; ++f) frame(sun); grab(defOff);
+        st.shadowCascades = 2;
+        printf("      W=%d H=%d\n", W, H);
     }
     // ---- render queue: our command goes through the game's own command table, between the game's commands
     {

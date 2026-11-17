@@ -5,14 +5,15 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define PS_VERSION     "1.4.8"
+#define PS_VERSION     "1.5.0"
 #define PS_DIR_NAME    "ProperGFX"              // files/ProperGFX (1.3 and older: files/ProperShader, moved automatically)
 #define PS_INI_NAME    "TYFMC.ProperGFX.ini"    // 1.3 and older: settings.ini (renamed automatically)
 #define PS_BUTTON_HIDDEN_BELOW 0.06f            // 64-bit: anything below = 0 = invisible (an old 0.05 from the 32-bit range included)
 #define PS_BUTTON_MIN_OPACITY 0.0f              // 64-bit: Opacity 0 = button label, fill AND outline fully transparent (32-bit build keeps 0.05)
 
 enum PSTonemap { TM_OFF = 0, TM_ACES = 1, TM_TIMOTHY = 2, TM_REINHARD = 3 };
-enum PSQuality { Q_LOW = 0, Q_MEDIUM = 1, Q_HIGH = 2, Q_CUSTOM = 3 };
+enum PSQuality { Q_LOW = 0, Q_MEDIUM = 1, Q_HIGH = 2, Q_CUSTOM = 3, Q_ULTRA = 4 };   // 1.5: Ultra added after Custom (old ini values keep their meaning)
+enum PSAoMode { AO_SSAO = 0, AO_HBAO = 1, AO_SSGI = 2 };
 
 // A value with a Day and a Night setting; `v` is the live (time-of-day blended) value used by the renderer.
 struct DN
@@ -135,6 +136,46 @@ struct PSSettings
     // ---- [GLSL] (shaders are built into the .so) ----
     bool  glslCustom   = false;      // run fragment/custom.glsl as the last pass
     float glslParam[8] = { 0.5f, 0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };   // PGFX_User0 / PGFX_User1
+    // ---- 1.5.0 deferred screen-space lighting (ps_deferred.cpp + shaders/fragment/def_*.glsl, GLSL ES 3.00).
+    //      Runs on the render thread right after RenderScene (render-queue event), on the game's scene target with its readable depth:
+    //      HUD, radar, menus, pause menu and the floating button are drawn later and are never touched.
+    bool  deferredOn   = true;       // [Deferred] Enabled - master switch of everything in this block
+    bool  deferredHalf = true;       // [Deferred] HalfRes - AO / GI / volumetrics at half resolution (bilateral upsample)
+    bool  aoOn         = true;       // [AmbientOcclusion]
+    int   aoMode       = AO_HBAO;    // SSAO / HBAO / SSGI (HBAO + one bounce of indirect colour)
+    float aoRadius     = 1.2f, aoIntensity = 0.85f, giStrength = 0.6f;
+    bool  skylightOn   = true;       // [Skylight] sky occlusion: big-scale AO that only occludes the sky ambient colour
+    float skylightStrength = 0.55f;
+    bool  ambientOn    = true;       // [AmbientLighting] tricoloured ambient (sky / horizon / ground by the reconstructed normal)
+    float ambientStrength = 0.30f;
+    bool  contactOn    = true;       // [ContactShadows] short screen-space rays toward the sun
+    float contactLength = 0.8f, contactStrength = 0.6f;
+    bool  volFogOn     = true;       // [VolumetricFog] height fog with god rays (ray-marched through the sun shadow map)
+    DN    volFogDensity { 0.30f, 0.45f };
+    float volFogFalloff = 0.35f, volGodrays = 0.8f;
+    bool  headlightsOn = false;      // [VolumetricHeadlights] experimental: light cones of the player's vehicle at night
+    float headlightStrength = 0.6f;
+    bool  cloudsOn     = false;      // [VolumetricClouds] ray-marched cloud layer over the sky pixels
+    float cloudCoverage = 0.45f, cloudDensity = 0.8f, cloudSpeed = 1.0f;
+    bool  pbrSkyOn     = false;      // [PBRSky] Rayleigh / Mie sky from the sun vector, blended over the game's sky
+    float pbrSkyBlend  = 0.45f;
+    bool  auroraOn     = false;      // [Aurora] borealis at night (sky pixels)
+    float auroraStrength = 0.6f;
+    bool  ssrOn        = true;       // [SSR] screen-space reflections on wet / flat / shiny surfaces
+    float ssrStrength  = 0.55f, ssrDry = 0.12f;
+    bool  rainSurfOn   = true;       // [WorldRain] puddles + ripples on upward surfaces while it rains (CWeather::WetRoads)
+    float puddles      = 0.6f, ripples = 0.6f;
+    bool  rainFallOn   = true;       // [RainFall] screen-space falling rain streaks
+    float rainFall     = 0.5f;
+    bool  causticsOn   = true;       // [WaterCaustics] projected onto the sea floor (world position from depth)
+    float causticsStrength = 0.6f;
+    bool  taaOn        = false;      // [TAA] temporal anti-aliasing (reprojection with the scene depth, neighbourhood clamp)
+    float taaBlend     = 0.86f;
+    bool  fsrOn        = false;      // [FSR] FidelityFX Super Resolution 1 RCAS sharpening + edge reconstruction (EASU-style)
+    float fsrSharpness = 0.35f;
+    bool  shadowPcss   = true;       // [DynamicShadows] PCSS: contact-hardening penumbra (blocker search)
+    bool  shadowBlurOn = true;       // [DynamicShadows] soft shadow mask: depth-aware gaussian blur of the mask
+    int   shadowCascades = 2;        // [DynamicShadows] 2 or 4 cascades
     // ---- [Button] / [Menu] ----
     bool  showButton   = true;
     float buttonX = 0.38f, buttonY = 0.95f, buttonScale = 1.0f, buttonOpacity = 0.55f;
@@ -153,6 +194,17 @@ extern const char* const PS_ShadowMethodNames[]; extern const int PS_ShadowMetho
 // [LUT] Folders -> the directory LUT_Load searches (base = files/ProperGFX)
 void PS_LutDir(const PSSettings& s, const char* base, char* out, int n);
 extern const char* const PS_DofModeNames[];   extern const int PS_DofModeCount;
+extern const char* const PS_AoModeNames[];    extern const int PS_AoModeCount;
+extern const char* const PS_QualityMenuNames[]; // Low / Medium / High / Ultra (slider order)
+int   PS_QualityToSlider(int q);                  // -1 = Custom
+int   PS_SliderToQuality(int i);
+bool  PS_PresetSave(const PSSettings& s, const char* dir, int slot);   // files/ProperGFX/presets/preset<slot>.ini
+bool  PS_PresetLoad(PSSettings& s, const char* dir, int slot);
+bool  PS_PresetDelete(const char* dir, int slot);
+bool  PS_PresetExists(const char* dir, int slot);
+// 1.5.0 public API helpers: one ini value by section + key (keys may end in .Day / .Night)
+bool  PS_SetValue(PSSettings& s, const char* section, const char* key, const char* value);
+bool  PS_GetValue(const PSSettings& s, const char* section, const char* key, char* out, int outLen);
 
 bool  PS_LoadSettings(PSSettings& s, const char* path);
 bool  PS_SaveSettings(const PSSettings& s, const char* path);
