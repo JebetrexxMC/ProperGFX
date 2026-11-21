@@ -1,4 +1,4 @@
-// Proper GFX Mobile - plain-language feature guide (menu > FEATURE GUIDE, mirrored in README.md).
+// TyFMCGFX - plain-language feature guide (menu > FEATURE GUIDE, mirrored in README.md).
 // status: 0 = implemented, 1 = partly (the useful half exists), 2 = not possible / not in this build
 #pragma once
 struct PSGuide { const char* name; int status; const char* what; const char* here; };
@@ -33,6 +33,6 @@ static const PSGuide kGuide[] = {
    "NOT possible as screen-space (no depth buffer). The same goal - no gap between an object and its shadow - is handled inside [DynamicShadows] with a bias that adapts to the sun height and a soft PCF filter; lower Bias to tighten contact, raise it if you see striping." },
  { "LUT", 0,
    "A digital file containing a mathematical formula that translates specific input color values from an image or video into new output color values. To install a LUT, grab your own.",
-   "Implemented: 7 built-in grades plus your own LUT - put lut.png / .bmp / .tga / .jpg (256x16, 1024x32, 4096x64, 64x64 or 512x512) in files/ProperGFX or pick a file in [LUT]; it is reloaded live when you replace it." },
+   "Implemented: 7 built-in grades plus your own LUT - put lut.png / .bmp / .tga / .jpg (256x16, 1024x32, 4096x64, 64x64 or 512x512) in files/TyFMCGFX or pick a file in [LUT]; it is reloaded live when you replace it." },
 };
 static const int kGuideCount = (int)(sizeof(kGuide) / sizeof(kGuide[0]));

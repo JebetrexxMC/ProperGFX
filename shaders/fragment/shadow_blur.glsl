@@ -1,5 +1,5 @@
 #version 300 es
-// Proper GFX 1.5.0 soft shadow mask: separable 9-tap gaussian of the shadow mask, depth aware (an edge of a building does not
+// TyFMCGFX 1.5.0 soft shadow mask: separable 9-tap gaussian of the shadow mask, depth aware (an edge of a building does not
 // bleed its shadow onto the sky / the street far behind it). Run twice (horizontal, vertical) right after the mask pass.
 precision highp float;
 uniform mediump sampler2D uMask;     // unit 0: mask (or the horizontal result)

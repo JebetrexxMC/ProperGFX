@@ -63,7 +63,7 @@ static const Field kFields[] = {
     B("CelShading", "World", celWorld) F("CelShading", "WorldLevels", celWorldLevels)
     B("Outlines", "Enabled", outline) F("Outlines", "Strength", outlineStrength) F("Outlines", "Threshold", outlineThreshold)
     B("VHS", "Enabled", vhs) F("VHS", "Strength", vhsStrength)
-    B("Button", "Show", showButton) F("Button", "X", buttonX) F("Button", "Y", buttonY) F("Button", "Size", buttonScale) F("Button", "Opacity", buttonOpacity) B("Button", "AutoCollapse", buttonCollapse)
+    B("Button", "Show", showButton) F("Button", "X", buttonX) F("Button", "Y", buttonY) F("Button", "Size", buttonScale) F("Button", "Opacity", buttonOpacity) B("Button", "AutoCollapse", buttonCollapse) B("Button", "Lock", buttonLock)
     F("Menu", "Scale", uiScale)
 };
 static const int kFieldCount = (int)(sizeof(kFields) / sizeof(kFields[0]));
@@ -149,7 +149,7 @@ bool PS_SaveSettings(const PSSettings& s, const char* path)
 {
     FILE* fp = fopen(path, "w");
     if (!fp) return false;
-    fprintf(fp, "# Proper GFX Mobile " PS_VERSION " - TYFMC.ProperGFX.ini (also edited by the in-game menu)\n"
+    fprintf(fp, "# TyFMCGFX " PS_VERSION " - TyFMCGFX.ini (also edited by the in-game menu)\n"
                 "# One section per feature, like the PC mod. 'Enabled = 0' disables a feature.\n"
                 "# Values with .Day / .Night are blended by the game clock.\n");
     char cur[64] = "";
@@ -177,7 +177,7 @@ bool PS_SaveSettings(const PSSettings& s, const char* path)
 void PS_ResetSettings(PSSettings& s)
 {
     PSSettings d;   // keep the button / menu placement
-    d.showButton = s.showButton; d.buttonX = s.buttonX; d.buttonY = s.buttonY; d.buttonScale = s.buttonScale;
+    d.showButton = s.showButton; d.buttonLock = s.buttonLock; d.buttonX = s.buttonX; d.buttonY = s.buttonY; d.buttonScale = s.buttonScale;
     d.buttonOpacity = s.buttonOpacity; d.uiScale = s.uiScale; memcpy(d.lutFile, s.lutFile, sizeof(d.lutFile)); d.worldPatch = s.worldPatch; d.celWorld = s.celWorld;
     s = d; ++g_worldGen;
 }

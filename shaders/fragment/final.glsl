@@ -1,4 +1,4 @@
-// Proper GFX final composite. Compiled as a VARIANT per enabled-feature set: the mod puts "#define FX_xxx 1" lines and
+// TyFMCGFX final composite. Compiled as a VARIANT per enabled-feature set: the mod puts "#define FX_xxx 1" lines and
 // "#define TM_MODE n" in front of this file, so every effect that is switched off is removed at compile time and costs nothing.
 // FX_AA FX_CA FX_CAS FX_DOF FX_OUTLINE FX_CEL FX_AUTOEXP FX_BLOOM FX_RAYS FX_FLARE FX_GLOW FX_GOLDEN FX_LUT FX_UNDER FX_VHS FX_VIGNETTE FX_GRAIN FX_DITHER FX_GRADE FX_GAMMA
 #pragma include "common.glsl"

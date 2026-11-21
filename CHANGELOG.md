@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.0 - renamed to TyFMCGFX
+* **Rename**: `libProperGFX32/64.so` -> `libTyFMCGFX32/64.so`, `files/ProperGFX` -> `files/TyFMCGFX`, `TYFMC.ProperGFX.ini` -> `TyFMCGFX.ini`, `propergfx_log.txt` -> `tyfmcgfx_log.txt`, in-game / AML / SAUtils name "TyFMCGFX". Old folders and ini files are migrated on the first launch (never overwriting). AML interface `TyFMCGFX` (+ `ProperGFX` kept); `ProperGFX_*` exports unchanged.
+* **ZyZGfx 2.0.7 features (64-bit)**, found by diffing the new `libZyZGFX64.so` against the old one in Ghidra 12 and rewritten for this mod:
+  * [DynamicLights]: `CShadows::StoreStaticShadow` (type 2 light pools), `CShadows::StoreCarLightShadow`, `CPointLights::AddLight` hooks -> 128-light pool (0.5 m match, 180 ms expiry) -> 32 nearest per-pixel lights in `def_composite.glsl`, 4 with screen-space shadows, `ShadowDebug`, `ReplaceGameShadows`.
+  * [VolumetricLights]: `CVehicle::DoHeadLightBeam` hook -> 16-beam pool -> 8 nearest cones ray-marched in `def_volume.glsl`, `ReplaceGameBeams`.
+  * [Moon] light / shadows (the shadow map follows the moon at night) / rays / sea glitter; [NightLook]; [NightSky] city glow, stars, Milky Way, shooting stars; [LensGlare]; [WetLightStreaks].
+  * [Weather] Lightning (`CWeather::LightningFlash`) and Drying; [RainOnCars] (vehicle env-map shader patch).
+  * [AmbientOcclusion] MultiBounce + GIQuality (sample counts); [Performance] DrawDistance (far clip x, 50-5000 m) and StreamingMemory; [Menu] PauseGame; capture frame (BMP into `files/TyFMCGFX/captures`).
+  * Not ported: lit / living windows, PBR material highlights, render scale.
+* **Menu (both builds)**: Firestorm Preferences with green accents (`common/ps_fsui.h`, shared by both trees): title row `? _ x`, Search Settings + on-screen keyboard, sidebar categories, tabs, green check boxes / tracks / drop-downs, quality track + reset glyph, Reset / OK / Cancel. 32-bit: the single list is split into categories (Graphics, Lighting, Post Process, Anti-aliasing, Camera, Artistic, Interface, Status, Feature Guide). 64-bit: new Night Lighting page and Hardware Settings tab.
+* **Floating button (both builds)**: Firestorm status-bar pill (clock, icon, FPS, red cap); [Button] Lock.
+
 ## 1.5.0
 * Menu fix (both builds): effects no longer change the main menu, the pause menu or the area behind the floating menu.
   * 64-bit: the effects run inside the frame. `AFTER_SCENE` (render-queue event after RenderScene) runs shadows + deferred lighting, and a hook on `CPostEffects::MobileRender` runs the post-process chain before the game's own post effects, HUD and menus. The old swap path is only a fallback when the in-frame events never arrive (30 gameplay frames).

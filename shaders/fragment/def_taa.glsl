@@ -1,5 +1,5 @@
 #version 300 es
-// Proper GFX 1.5.0 [TAA] temporal anti-aliasing: each pixel is reprojected into the previous frame with the scene depth and both
+// TyFMCGFX 1.5.0 [TAA] temporal anti-aliasing: each pixel is reprojected into the previous frame with the scene depth and both
 // cameras (no motion vectors needed for the static world), the history is clamped to the 3x3 neighbourhood of the current frame
 // (no ghosting) and blended. GTA SA's projection cannot be jittered, so this smooths shimmering / crawling edges rather than resolving
 // sub-pixel detail (that is FXAA / SMAA's job).

@@ -1,4 +1,4 @@
-// Proper GFX Mobile (v1.5.0, 32-bit source tree: C++/H only, AML + SAUtils) - AML mod for GTA San Andreas Android (2.00 armeabi-v7a / 2.10 arm64-v8a)
+// TyFMCGFX (v1.6.0, 32-bit source tree: C++/H only, AML + SAUtils) - AML mod for GTA San Andreas Android (2.00 armeabi-v7a / 2.10 arm64-v8a)
 // Everything is hooked by exported symbol name, so one source tree serves both builds.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
@@ -38,7 +38,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.5.0, ProperGFX)
+MYMOD(net.propergfx.mobile, TyFMCGFX, 1.6.0, TyFMC)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -410,39 +410,48 @@ DECL_HOOKp(RwCameraSetNearClipPlane, void* cam, float nearPlane)
     return RwCameraSetNearClipPlane(cam, nearPlane);
 }
 
-// ---------------------------------------------------------------- 1.4: folder files/ProperShader -> files/ProperGFX, settings.ini -> TYFMC.ProperGFX.ini
+// ---------------------------------------------------------------- 1.6: rename to TyFMCGFX
+// files/ProperShader (<=1.3) and files/ProperGFX (1.4-1.5) -> files/TyFMCGFX, settings.ini / TYFMC.ProperGFX.ini -> TyFMCGFX.ini
 static bool Exists(const char* p) { return access(p, F_OK) == 0; }
+static bool IsOldIni(const char* n) { return !strcasecmp(n, "settings.ini") || !strcasecmp(n, "TYFMC.ProperGFX.ini"); }
+static bool IsOldJunk(const char* n) { return !strncasecmp(n, "shadow_guard", 12) || !strcasecmp(n, "propergfx_log.txt"); }
+static void MigrateOneFolder(const char* files, const char* oldName, const char* newDir)
+{
+    char oldDir[600]; snprintf(oldDir, sizeof(oldDir), "%s/%s", files, oldName);
+    if (!Exists(oldDir)) return;
+    if (!Exists(newDir) && rename(oldDir, newDir) == 0) { logger->Info("moved files/%s to files/" PS_DIR_NAME, oldName); return; }
+    // both exist: move what is ours file by file (never overwrite), drop old guard / log files, remove the old folder when empty
+    mkdir(newDir, 0777);
+    if (DIR* d = opendir(oldDir))
+    {
+        while (dirent* e = readdir(d))
+        {
+            const char* n = e->d_name;
+            if (n[0] == '.') continue;
+            char from[900], to[900]; snprintf(from, sizeof(from), "%s/%s", oldDir, n);
+            if (IsOldJunk(n)) { remove(from); continue; }
+            snprintf(to, sizeof(to), "%s/%s", newDir, IsOldIni(n) ? PS_INI_NAME : n);
+            if (!Exists(to)) rename(from, to);
+        }
+        closedir(d);
+    }
+    rmdir(oldDir);
+}
 static void MigrateOldFolder(const char* files, const char* newDir)
 {
-    char oldDir[600]; snprintf(oldDir, sizeof(oldDir), "%s/ProperShader", files);
-    char oldIni[700], newIni[700];
-    if (Exists(oldDir))
+    MigrateOneFolder(files, "ProperGFX", newDir);
+    MigrateOneFolder(files, "ProperShader", newDir);
+    const char* oldInis[] = { "TYFMC.ProperGFX.ini", "settings.ini" };
+    char newIni[700]; snprintf(newIni, sizeof(newIni), "%s/" PS_INI_NAME, newDir);
+    for (const char* oi : oldInis)
     {
-        if (!Exists(newDir) && rename(oldDir, newDir) == 0) logger->Info("moved files/ProperShader to files/" PS_DIR_NAME);
-        else
-        {   // both exist: move what is ours file by file, drop the old guard / log files, remove the old folder when it is empty
-            mkdir(newDir, 0777);
-            if (DIR* d = opendir(oldDir))
-            {
-                while (dirent* e = readdir(d))
-                {
-                    if (e->d_name[0] == '.') continue;
-                    char from[900], to[900]; snprintf(from, sizeof(from), "%s/%s", oldDir, e->d_name);
-                    const char* n = e->d_name;
-                    if (!strncasecmp(n, "shadow_guard", 12) || !strcasecmp(n, "propergfx_log.txt")) { remove(from); continue; }
-                    snprintf(to, sizeof(to), "%s/%s", newDir, !strcasecmp(n, "settings.ini") ? PS_INI_NAME : n);
-                    if (!Exists(to)) rename(from, to);
-                }
-                closedir(d);
-            }
-            rmdir(oldDir);
-        }
+        char oldIni[700]; snprintf(oldIni, sizeof(oldIni), "%s/%s", newDir, oi);
+        if (Exists(oldIni) && !Exists(newIni) && rename(oldIni, newIni) == 0) logger->Info("%s renamed to " PS_INI_NAME, oi);
+        char junk[700]; snprintf(junk, sizeof(junk), "%s/propergfx_log.txt", newDir); remove(junk);
     }
-    snprintf(oldIni, sizeof(oldIni), "%s/settings.ini", newDir); snprintf(newIni, sizeof(newIni), "%s/" PS_INI_NAME, newDir);
-    if (Exists(oldIni) && !Exists(newIni)) { if (rename(oldIni, newIni) == 0) logger->Info("settings.ini renamed to " PS_INI_NAME); }
 }
 
-// ---------------------------------------------------------------- SAUtils (optional): "Proper GFX" entries in the game's Settings > Mods tab
+// ---------------------------------------------------------------- SAUtils (optional): "TyFMCGFX" entries in the game's Settings > Mods tab
 // Useful when the floating button is hidden or fully transparent.
 static ISAUtils* sautils = nullptr;
 static int g_sauButtonItem = -1;
@@ -453,15 +462,15 @@ static void SetupSAUtils()
     sautils = (ISAUtils*)GetInterface("SAUtils");
     if (!sautils) return;
     static const char* kOnOff[] = { "Off", "On", nullptr };
-    sautils->AddButton(SetType_Mods, "Proper GFX - open menu", OnSAUOpenMenu);
-    g_sauButtonItem = sautils->AddClickableItem(SetType_Mods, "Proper GFX - floating button", g_cfg.showButton ? 1 : 0, 0, 1, kOnOff, OnSAUButtonChanged);
-    logger->Info("SAUtils found: Proper GFX entries added to Settings > Mods");
+    sautils->AddButton(SetType_Mods, "TyFMCGFX - open menu", OnSAUOpenMenu);
+    g_sauButtonItem = sautils->AddClickableItem(SetType_Mods, "TyFMCGFX - floating button", g_cfg.showButton ? 1 : 0, 0, 1, kOnOff, OnSAUButtonChanged);
+    logger->Info("SAUtils found: TyFMCGFX entries added to Settings > Mods");
 }
 
 // ---------------------------------------------------------------- entry
 extern "C" __attribute__((visibility("default"))) void OnModLoad()
 {
-    logger->SetTag("ProperGFX");
+    logger->SetTag("TyFMCGFX");
     void* hGame = aml->GetLibHandle("libGTASA.so");
     if (!hGame) { logger->Error("libGTASA.so not found"); return; }
     if (aml->HasMod("net.propershader.mobile")) { logger->Error("Proper Shader Mobile 1.2 (libProperShader32/64.so) is also installed - delete it, both cannot run together"); return; }
@@ -471,11 +480,11 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     snprintf(files, sizeof(files), "%s", base && base[0] ? base : "/sdcard/Android/data/com.rockstargames.gtasa/files");
     { size_t l = strlen(files); if (l > 1 && files[l - 1] == '/') files[l - 1] = 0; }
     snprintf(g_dir, sizeof(g_dir), "%s/" PS_DIR_NAME, files);
-    MigrateOldFolder(files, g_dir);         // 1.3 and older: files/ProperShader/settings.ini -> files/ProperGFX/TYFMC.ProperGFX.ini
+    MigrateOldFolder(files, g_dir);         // 1.3 and older: files/ProperShader/settings.ini -> files/TyFMCGFX/TyFMCGFX.ini
     mkdir(g_dir, 0777);
-    {   // kill-switch: create ProperGFX/disable.txt to make the mod do nothing at all
+    {   // kill-switch: create TyFMCGFX/disable.txt to make the mod do nothing at all
         char kill[640]; snprintf(kill, sizeof(kill), "%s/disable.txt", g_dir);
-        if (access(kill, F_OK) == 0) { logger->Info("disable.txt found - Proper GFX Mobile stays inactive"); return; }
+        if (access(kill, F_OK) == 0) { logger->Info("disable.txt found - TyFMCGFX stays inactive"); return; }
     }
     snprintf(g_iniPath, sizeof(g_iniPath), "%s/" PS_INI_NAME, g_dir);
     if (!PS_LoadSettings(g_cfg, g_iniPath)) PS_SaveSettings(g_cfg, g_iniPath);
@@ -492,9 +501,9 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
             if (access(old13, F_OK) == 0) { remove(old13); logger->Info("removed the 1.3.0/1.3.1 shadow guard file"); }
         }
         snprintf(g_guardPath, sizeof(g_guardPath), "%s/shadow_guard_v132.txt", g_dir);
-        snprintf(PS_LogFilePath(), 640, "%s/propergfx_log.txt", g_dir);
+        snprintf(PS_LogFilePath(), 640, "%s/tyfmcgfx_log.txt", g_dir);
         { FILE* lf = fopen(PS_LogFilePath(), "rb"); if (lf) { fseek(lf, 0, SEEK_END); long sz = ftell(lf); fclose(lf); if (sz > 96 * 1024) remove(PS_LogFilePath()); } }
-        PS_FileLog("---- launch: Proper GFX Mobile " PS_VERSION " (%d-bit) ----", PS_BITS);
+        PS_FileLog("---- launch: TyFMCGFX " PS_VERSION " (%d-bit) ----", PS_BITS);
         if (g_cfg.shadows && g_cfg.shadowGuard && access(g_guardPath, F_OK) == 0) { g_guardTripped = true; logger->Info("shadow_guard_v132.txt found: shadows are in SAFE MODE (previous launch did not finish). Menu > DynamicShadows > Retry shadows, then restart."); }
         else if (g_cfg.shadows && g_cfg.shadowGuard) { FILE* gf = fopen(g_guardPath, "w"); if (gf) { fputs("exists while the first minute of shadows has not finished; Retry shadows in the menu or CrashGuard = 0 in " PS_INI_NAME " disables this\n", gf); fclose(gf); g_guardActive = true; } }
         if (g_guardTripped) Shadow_SetGuardFailed(true);
@@ -533,5 +542,5 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
         HOOKSYM(RQ_Command_rqDeleteShader, hGame, "_Z25RQ_Command_rqDeleteShaderRPc");
     }
     SetupSAUtils();
-    logger->Info("Proper GFX Mobile " PS_VERSION " loaded (%d-bit). Config: %s", PS_BITS, g_iniPath);
+    logger->Info("TyFMCGFX " PS_VERSION " loaded (%d-bit). Config: %s", PS_BITS, g_iniPath);
 }

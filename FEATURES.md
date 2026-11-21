@@ -1,14 +1,16 @@
-# Proper GFX Mobile 1.5.0: feature status
+# TyFMCGFX 1.6.0 (formerly Proper GFX Mobile): feature status
 
 The 1.5.0 deferred screen-space features (AO / GI, skylight, ambient, contact shadows, volumetrics, clouds, PBR sky, aurora, SSR, rain, caustics, TAA, FSR, depth DoF, 4 cascades + PCSS) are in the **64-bit** build (GTA SA 2.10, GLSL ES 3.00). The 32-bit build (2.00) gets the new menu style, the icon button and the menu fix.
+
+1.6.0 adds the night lighting of ZyZGfx 2.0.7 to the 64-bit build (dynamic lights, every car's headlight beams, moon light / shadows / rays, night look and sky, lens glare, wet streaks, lightning, rain on cars, drying roads, draw distance, streaming memory) and the green Firestorm Preferences menu to both builds.
 
 Legend: ✅ implemented · 🟡 approximated · ❌ not possible on this engine from a mod
 
 | # | Feature | Status | Notes |
 |---|---|---|---|
 | 1 | Full deferred rendering | 🟡 approximated | 64-bit 1.5.0: deferred **screen-space lighting** (`ps_deferred.cpp`, `def_*.glsl`) on the game's scene colour + readable depth, run on the render thread right after RenderScene. The game itself stays a forward renderer: there is no G-buffer with albedo / roughness, so lighting is rebuilt from depth (position + normal). |
-| 2 | Per-pixel lighting with hundreds of lights | ❌ not possible on this engine | Needs a G-buffer and the game's light list on the GPU; SA's lights are vertex-lit inside its own shaders. Only the player's headlights are added (see Volumetric headlights). |
-| 3 | Volumetric light beams | 🟡 approximated | 64-bit: ray-marched sun beams through the shadow map (`def_volume.glsl`) + experimental volumetric headlight cones. |
+| 2 | Per-pixel lighting with hundreds of lights | 🟡 approximated | 64-bit 1.6.0 `[DynamicLights]`: every lamp / neon / car light / point light the game reports (CShadows + CPointLights hooks, 128-light pool) lights the depth-reconstructed world; the 32 nearest per frame, the 4 nearest with screen-space shadows. |
+| 3 | Volumetric light beams | ✅ implemented | 64-bit: sun and moon beams through the shadow map (`def_volume.glsl`) + 1.6.0 `[VolumetricLights]` headlight cones of every car (`CVehicle::DoHeadLightBeam`, 8 nearest). |
 | 4 | Shadermaps (normal / roughness / metallic) + POM | ❌ not possible on this engine | Needs per-texture extra maps (TXDP streaming) and tangents in the game's meshes. |
 | 5 | Dynamic 4 cascaded shadows (PCSS) | ✅ implemented | 64-bit: `[DynamicShadows] Cascades = 2 / 4`, `PCSS = 1` (blocker search, contact-hardening penumbra). 32-bit: one map. |
 | 6 | Soft shadow mask with gaussian blur | ✅ implemented | 64-bit: depth-aware gaussian blur of the mask (`shadow_blur.glsl`, `SoftMaskBlur`). |
@@ -57,16 +59,23 @@ Legend: ✅ implemented · 🟡 approximated · ❌ not possible on this engine 
 | 49 | Artistic: Aurora | ✅ implemented | 64-bit: borealis on night sky pixels (`[Aurora]`). |
 | 50 | Unlimited TXDPs | ❌ not possible on this engine | IDE / streaming parser hooks (separate mod). |
 | 51 | 11k textures configured | ❌ not possible on this engine | PC data pack, not code. |
-| 52 | ModLoader implementation | ✅ implemented | AML mod; LUTs / custom.glsl / ini load from `files/ProperGFX/`. |
-| 53 | Public API for modders | ✅ implemented | 64-bit: `src64/propergfx_api.h`, AML interface `ProperGFX` + exported `ProperGFX_*` C functions (see API.md). |
-| 54 | In-game GUI editor | ✅ implemented | Firestorm-style menu (white accents), every setting live, presets 1-8, OK / Cancel. |
+| 52 | ModLoader implementation | ✅ implemented | AML mod; LUTs / custom.glsl / ini load from `files/TyFMCGFX/`. |
+| 53 | Public API for modders | ✅ implemented | 64-bit: `src64/propergfx_api.h`, AML interface `TyFMCGFX` (old name `ProperGFX` still registered) + exported `ProperGFX_*` C functions (see API.md). |
+| 54 | In-game GUI editor | ✅ implemented | Firestorm Preferences menu (green accents), search box with on-screen keyboard, every setting live, presets 1-8, OK / Cancel. |
 | 55 | Lens flare | 🟡 approximated | Screen-space ghosts / halo. |
 | 56 | Anisotropic hair / SSS / terrain splat maps | ❌ not possible on this engine | Need per-material shaders and data. |
 | 57 | Contact shadows | ✅ implemented | 64-bit: short screen-space rays toward the sun. |
 | 58 | Volumetric headlights (experimental) | 🟡 approximated | 64-bit: light cones from the player's vehicle at night. |
 | 59 | Foliage backlights | ❌ not possible on this engine | Foliage cannot be told apart in a screen-space pass. |
 | 60 | Relief mapping | ❌ not possible on this engine | Same as POM. |
-| 61 | Floating settings button | ✅ implemented | Box with a vector icon (gear + half-lit disc, no texture, no text); shrinks when idle. |
+| 61 | Floating settings button | ✅ implemented | 1.6.0: Firestorm status-bar pill (clock, icon, FPS, red end cap); shrinks to the icon when idle; `[Button] Lock`. |
 | 62 | No effects in main / pause / floating menu | ✅ implemented | 1.5.0: effects run inside the frame (after the scene / before CPostEffects::MobileRender, below the HUD) and stop while CTimer::m_UserPause or m_CodePause is set. |
+| 63 | Moon light, moon shadows, moon rays, sea glitter | ✅ implemented | 64-bit 1.6.0 `[Moon]` (ZyZ 2.0 "moon" module). |
+| 64 | Night look and night sky | ✅ implemented | 64-bit 1.6.0 `[NightLook]` / `[NightSky]`: night grade, lamp / neon / fog glow, city glow, stars, Milky Way, shooting stars. |
+| 65 | Lens glare and wet light streaks | ✅ implemented | 64-bit 1.6.0 `[LensGlare]`, `[WetLightStreaks]`. |
+| 66 | Lightning and drying roads | ✅ implemented | 64-bit 1.6.0 `[Weather]`: `CWeather::LightningFlash` lights the scene; wetness fades over `DryingTime`. |
+| 67 | Rain on cars | 🟡 approximated | 64-bit 1.6.0 `[RainOnCars]`: bead pattern + wet film in the vehicle env-map shader (only shaders with `Out_Tex0`). |
+| 68 | Draw distance / streaming memory | ✅ implemented | 64-bit 1.6.0 `[Performance]`. |
+| 69 | Lit / living windows, PBR material highlights, render scale (ZyZ 2.0) | ❌ not ported | Need ZyZ's own per-model texture tables / a lower-resolution scene target the game does not provide; left out on purpose. |
 
-**Totals:** 29 implemented, 15 approximated, 18 not possible (out of 62).
+**Totals:** 35 implemented, 16 approximated, 18 not possible / not ported (out of 69).

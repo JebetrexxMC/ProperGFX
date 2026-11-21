@@ -1,13 +1,13 @@
-// Proper GFX Mobile (formerly Proper Shader Mobile) - settings (files/ProperGFX/TYFMC.ProperGFX.ini).
+// TyFMCGFX (formerly TyFMCGFX / Proper Shader Mobile) - settings (files/TyFMCGFX/TyFMCGFX.ini).
 // Modelled on how the PC mod is configured: one section per feature, each with an Enabled switch,
 // separate Day / Night values for the parameters that matter, and Low / Medium / High presets.
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
 
-#define PS_VERSION     "1.5.0"
-#define PS_DIR_NAME    "ProperGFX"              // files/ProperGFX (1.3 and older: files/ProperShader, moved automatically)
-#define PS_INI_NAME    "TYFMC.ProperGFX.ini"    // 1.3 and older: settings.ini (renamed automatically)
+#define PS_VERSION     "1.6.0"
+#define PS_DIR_NAME    "TyFMCGFX"               // files/TyFMCGFX (1.4-1.5: files/TyFMCGFX, 1.3 and older: files/ProperShader - moved automatically)
+#define PS_INI_NAME    "TyFMCGFX.ini"           // 1.4-1.5: TyFMCGFX.ini, 1.3 and older: settings.ini (renamed automatically)
 #ifndef PS_BUTTON_MIN_OPACITY
 #define PS_BUTTON_MIN_OPACITY 0.05f             // 32-bit build keeps the 1.3 range; the 64-bit build allows a fully transparent button (0.0)
 #endif
@@ -63,10 +63,10 @@ struct PSSettings
     DN    contrast       { 1.05f, 1.05f };
     DN    saturation     { 1.08f, 1.00f };
     float vibrance = 0.20f, temperature = 0.f, tint = 0.f, gamma = 1.f, lift = 0.f, gain = 1.f;
-    // ---- [LUT] colour lookup texture: files/ProperGFX/<LUTFile> (png / bmp / tga / jpg; 256x16, 1024x32, 4096x64, 64x64, 512x512) ----
+    // ---- [LUT] colour lookup texture: files/TyFMCGFX/<LUTFile> (png / bmp / tga / jpg; 256x16, 1024x32, 4096x64, 64x64, 512x512) ----
     bool  lutOn        = true;
     float lutAmount    = 1.0f;       // 1.4: default 1 (was 0, so a dropped-in LUT seemed to do nothing)
-    char  lutFile[64]  = "auto";     // "auto" = the first lut.png / lut.bmp / lut.tga / lut.jpg (any case) in files/ProperGFX or files/ProperGFX/luts
+    char  lutFile[64]  = "auto";     // "auto" = the first lut.png / lut.bmp / lut.tga / lut.jpg (any case) in files/TyFMCGFX or files/TyFMCGFX/luts
     // ---- [Dithering] / [Vignette] / [FilmGrain] / [ChromaticAberration] ----
     bool  dither       = true;
     bool  vignette     = true;
@@ -122,6 +122,7 @@ struct PSSettings
     // ---- [Button] / [Menu] ----
     bool  showButton   = true;
     float buttonX = 0.38f, buttonY = 0.95f, buttonScale = 1.0f, buttonOpacity = 0.55f;
+    bool  buttonLock   = false;      // [Button] Lock: the floating button can not be dragged (1.6.0)
     bool  buttonCollapse = true;     // shrink to a small dot when idle so it never covers other mods' buttons
     float uiScale      = 1.0f;
 };

@@ -1,4 +1,4 @@
-// Proper GFX Mobile - colour lookup texture (LUT) loader.
+// TyFMCGFX - colour lookup texture (LUT) loader.
 // Accepts PNG / BMP / TGA / JPG (any common variant: 24/32-bit, RLE TGA, BITFIELDS BMP, palette PNG ...) through stb_image.
 // Layouts: horizontal strip N*N x N (256x16, 1024x32, 4096x64) and square tile atlases (64x64 = 16^3, 512x512 = 64^3, ...).
 // Orientation is detected from the picture itself (green must grow inside every tile), so ReShade / Unity / PC Proper Shaders LUTs

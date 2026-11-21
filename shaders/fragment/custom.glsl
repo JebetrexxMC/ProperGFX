@@ -1,4 +1,4 @@
-// [GLSL] CustomPass = 1 -> this pass runs LAST, on the finished Proper GFX picture (menu > GLSL SHADERS > Custom pass).
+// [GLSL] CustomPass = 1 -> this pass runs LAST, on the finished TyFMCGFX picture (menu > GLSL SHADERS > Custom pass).
 // Write your own effect here. Everything from common.glsl is available (SunVector, Time, GameTimeSeconds, UnderWaterness,
 // RoadsWetness, FarClipDist, EntityModel, PGFX_TimeSec, PGFX_Sun) plus the 8 menu sliders PGFX_User0 / PGFX_User1.
 // uTex = the picture, uRes = (width, height, 1/width, 1/height).

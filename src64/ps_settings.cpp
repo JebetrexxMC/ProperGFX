@@ -93,7 +93,23 @@ static const Field kFields[] = {
     B("GLSL", "CustomPass", glslCustom)
     F("GLSL", "Param0", glslParam[0]) F("GLSL", "Param1", glslParam[1]) F("GLSL", "Param2", glslParam[2]) F("GLSL", "Param3", glslParam[3])
     F("GLSL", "Param4", glslParam[4]) F("GLSL", "Param5", glslParam[5]) F("GLSL", "Param6", glslParam[6]) F("GLSL", "Param7", glslParam[7])
-    B("Button", "Show", showButton) F("Button", "X", buttonX) F("Button", "Y", buttonY) F("Button", "Size", buttonScale) F("Button", "Opacity", buttonOpacity) B("Button", "AutoCollapse", buttonCollapse)
+    B("DynamicLights", "Enabled", dynLightsOn) F("DynamicLights", "Strength", dynLightStrength) F("DynamicLights", "Range", dynLightRange)
+    B("DynamicLights", "Shadows", dynLightShadows) B("DynamicLights", "ShadowDebug", dynLightDebug) B("DynamicLights", "ReplaceGameShadows", replaceGameShadows)
+    B("VolumetricLights", "Enabled", beamsOn) F("VolumetricLights", "BeamStrength", beamStrength) B("VolumetricLights", "ReplaceGameBeams", replaceGameBeams)
+    B("LensGlare", "Enabled", glareOn) F("LensGlare", "Strength", glareStrength)
+    B("WetLightStreaks", "Enabled", wetStreaksOn) F("WetLightStreaks", "Strength", wetStreaks)
+    B("Moon", "Light", moonLightOn) F("Moon", "LightStrength", moonLight) B("Moon", "Shadows", moonShadows) F("Moon", "ShadowStrength", moonShadowStrength)
+    B("Moon", "Rays", moonRaysOn) F("Moon", "RaysStrength", moonRays) B("Moon", "Glitter", moonGlitterOn) F("Moon", "GlitterStrength", moonGlitter)
+    B("NightLook", "Enabled", nightLookOn) F("NightLook", "Contrast", nightContrast) F("NightLook", "Exposure", nightExposure) F("NightLook", "ColourShift", nightColourShift)
+    F("NightLook", "Bloom", nightBloom) F("NightLook", "LampGlow", lampGlow) F("NightLook", "NeonGlow", neonGlow) F("NightLook", "FogGlow", fogGlow)
+    B("NightSky", "CityGlow", cityGlowOn) F("NightSky", "CityGlowStrength", cityGlow) B("NightSky", "Stars", starsOn) F("NightSky", "StarsStrength", stars)
+    F("NightSky", "MilkyWay", milkyWay) F("NightSky", "ShootingStars", shootingStars)
+    B("AmbientOcclusion", "MultiBounce", aoMultiBounce) I("AmbientOcclusion", "GIQuality", giQuality)
+    B("Weather", "Lightning", lightningOn) F("Weather", "LightningStrength", lightning) B("Weather", "Drying", dryingOn) F("Weather", "DryingTime", dryingTime)
+    B("RainOnCars", "Enabled", carRainOn) I("RainOnCars", "Quality", carRainQuality)
+    F("Performance", "DrawDistance", drawDistance) I("Performance", "StreamingMemory", streamingMB)
+    B("Menu", "PauseGame", pauseInMenu)
+    B("Button", "Show", showButton) F("Button", "X", buttonX) F("Button", "Y", buttonY) F("Button", "Size", buttonScale) F("Button", "Opacity", buttonOpacity) B("Button", "AutoCollapse", buttonCollapse) B("Button", "Lock", buttonLock)
     F("Menu", "Scale", uiScale)
 };
 static const int kFieldCount = (int)(sizeof(kFields) / sizeof(kFields[0]));
@@ -144,6 +160,17 @@ static void Sanitize(PSSettings& s)
     s.shadowTintR = clampf(s.shadowTintR, 0.f, 1.f); s.shadowTintG = clampf(s.shadowTintG, 0.f, 1.f); s.shadowTintB = clampf(s.shadowTintB, 0.f, 1.f);
     for (float& p : s.glslParam) p = clampf(p, -1.f, 1.f);
     s.uiScale = clampf(s.uiScale, 0.6f, 2.f);
+    s.dynLightStrength = clampf(s.dynLightStrength, 0.f, 3.f); s.dynLightRange = clampf(s.dynLightRange, 0.3f, 3.f);
+    s.beamStrength = clampf(s.beamStrength, 0.f, 2.f); s.glareStrength = clampf(s.glareStrength, 0.f, 2.f); s.wetStreaks = clampf(s.wetStreaks, 0.f, 2.f);
+    s.moonLight = clampf(s.moonLight, 0.f, 2.f); s.moonShadowStrength = clampf(s.moonShadowStrength, 0.f, 1.f);
+    s.moonRays = clampf(s.moonRays, 0.f, 2.f); s.moonGlitter = clampf(s.moonGlitter, 0.f, 2.f);
+    s.nightContrast = clampf(s.nightContrast, 0.7f, 1.5f); s.nightExposure = clampf(s.nightExposure, -1.5f, 1.5f); s.nightColourShift = clampf(s.nightColourShift, 0.f, 1.f);
+    s.nightBloom = clampf(s.nightBloom, 0.f, 1.5f); s.lampGlow = clampf(s.lampGlow, 0.f, 2.f); s.neonGlow = clampf(s.neonGlow, 0.f, 2.f); s.fogGlow = clampf(s.fogGlow, 0.f, 2.f);
+    s.cityGlow = clampf(s.cityGlow, 0.f, 2.f); s.stars = clampf(s.stars, 0.f, 2.f); s.milkyWay = clampf(s.milkyWay, 0.f, 2.f); s.shootingStars = clampf(s.shootingStars, 0.f, 2.f);
+    s.giQuality = s.giQuality < 0 ? 0 : (s.giQuality > 2 ? 2 : s.giQuality);
+    s.lightning = clampf(s.lightning, 0.f, 2.f); s.dryingTime = clampf(s.dryingTime, 5.f, 600.f);
+    s.carRainQuality = s.carRainQuality < 0 ? 0 : (s.carRainQuality > 2 ? 2 : s.carRainQuality);
+    s.drawDistance = clampf(s.drawDistance, 0.5f, 3.f); s.streamingMB = s.streamingMB < 0 ? 0 : (s.streamingMB > 2047 ? 2047 : s.streamingMB);
 }
 
 static int EnumFind(const Field& f, const char* v)
@@ -197,7 +224,7 @@ bool PS_SaveSettings(const PSSettings& s, const char* path)
 {
     FILE* fp = fopen(path, "w");
     if (!fp) return false;
-    fprintf(fp, "# Proper GFX Mobile " PS_VERSION " - TYFMC.ProperGFX.ini (also edited by the in-game menu)\n"
+    fprintf(fp, "# TyFMCGFX " PS_VERSION " - TyFMCGFX.ini (also edited by the in-game menu)\n"
                 "# One section per feature, like the PC mod. 'Enabled = 0' disables a feature.\n"
                 "# Values with .Day / .Night are blended by the game clock.\n");
     char cur[64] = "";
@@ -226,7 +253,7 @@ void PS_ResetSettings(PSSettings& s)
 {
     PSSettings d;   // keep the button / menu placement
     d.showButton = s.showButton; d.buttonX = s.buttonX; d.buttonY = s.buttonY; d.buttonScale = s.buttonScale;
-    d.buttonOpacity = s.buttonOpacity; d.uiScale = s.uiScale; memcpy(d.lutFile, s.lutFile, sizeof(d.lutFile)); memcpy(d.lutFolder, s.lutFolder, sizeof(d.lutFolder));
+    d.buttonOpacity = s.buttonOpacity; d.uiScale = s.uiScale; d.buttonLock = s.buttonLock; d.streamingMB = s.streamingMB; memcpy(d.lutFile, s.lutFile, sizeof(d.lutFile)); memcpy(d.lutFolder, s.lutFolder, sizeof(d.lutFolder));
     d.glslCustom = s.glslCustom; memcpy(d.glslParam, s.glslParam, sizeof(d.glslParam)); d.worldPatch = s.worldPatch; d.celWorld = s.celWorld;
     s = d; ++g_worldGen;
 }
@@ -243,7 +270,8 @@ void PS_ApplyQuality(PSSettings& s, int q)
             s.autoExp = false; s.bloom = false; s.sunRays = false; s.lensFlare = false; s.cas = false; s.vignette = false;
             s.shadows = false;                      // Low = fast and smooth: no shadows, no bloom, no sun rays, no deferred lighting
             s.fxaaStrength = 0.7f; s.shadowRes = 0; s.shadowEvery = 6; s.shadowDist = 55.f;
-            s.deferredOn = false; s.taaOn = false; s.fsrOn = false; break;
+            s.deferredOn = false; s.taaOn = false; s.fsrOn = false;
+            s.dynLightsOn = false; s.beamsOn = false; s.glareOn = false; s.wetStreaksOn = false; s.moonShadows = false; s.moonRaysOn = false; s.starsOn = false; s.carRainOn = false; break;
         case Q_MEDIUM:
             s.autoExp = true; s.bloom = true; s.sunRays = true; s.lensFlare = false; s.cas = true; s.vignette = true;
             s.shadows = true;                       // Medium: shadows + bloom + sun rays + half-res AO / fog for mid-range phones
@@ -251,7 +279,9 @@ void PS_ApplyQuality(PSSettings& s, int q)
             s.shadowPcss = false; s.shadowBlurOn = true; s.shadowCascades = 2;
             s.deferredOn = true; s.deferredHalf = true; s.aoOn = true; s.aoMode = AO_SSAO; s.skylightOn = true; s.ambientOn = true;
             s.contactOn = false; s.volFogOn = true; s.volGodrays = 0.f; s.ssrOn = true; s.ssrDry = 0.f; s.rainSurfOn = true; s.rainFallOn = true;
-            s.causticsOn = true; s.cloudsOn = false; s.pbrSkyOn = false; s.taaOn = false; s.fsrOn = false; break;
+            s.causticsOn = true; s.cloudsOn = false; s.pbrSkyOn = false; s.taaOn = false; s.fsrOn = false;
+            s.dynLightsOn = true; s.dynLightShadows = false; s.beamsOn = true; s.glareOn = false; s.wetStreaksOn = true; s.moonLightOn = true; s.moonShadows = false;
+            s.moonRaysOn = false; s.starsOn = true; s.cityGlowOn = true; s.carRainOn = true; s.carRainQuality = 0; s.giQuality = 0; s.aoMultiBounce = false; break;
         case Q_HIGH:
             s.autoExp = true; s.bloom = true; s.sunRays = true; s.lensFlare = true; s.cas = true; s.vignette = true;
             s.shadows = true;                       // High: everything, bigger shadow map, updated more often
@@ -259,7 +289,9 @@ void PS_ApplyQuality(PSSettings& s, int q)
             s.shadowPcss = true; s.shadowBlurOn = true; s.shadowCascades = 2;
             s.deferredOn = true; s.deferredHalf = true; s.aoOn = true; s.aoMode = AO_HBAO; s.skylightOn = true; s.ambientOn = true;
             s.contactOn = true; s.volFogOn = true; s.volGodrays = 0.8f; s.ssrOn = true; s.ssrDry = 0.12f; s.rainSurfOn = true; s.rainFallOn = true;
-            s.causticsOn = true; s.cloudsOn = false; s.pbrSkyOn = false; s.taaOn = false; s.fsrOn = false; break;
+            s.causticsOn = true; s.cloudsOn = false; s.pbrSkyOn = false; s.taaOn = false; s.fsrOn = false;
+            s.dynLightsOn = true; s.dynLightShadows = true; s.beamsOn = true; s.glareOn = true; s.wetStreaksOn = true; s.moonLightOn = true; s.moonShadows = true;
+            s.moonRaysOn = true; s.starsOn = true; s.cityGlowOn = true; s.carRainOn = true; s.carRainQuality = 1; s.giQuality = 1; s.aoMultiBounce = true; break;
         case Q_ULTRA:
             s.autoExp = true; s.bloom = true; s.sunRays = true; s.lensFlare = true; s.cas = true; s.vignette = true;
             s.shadows = true;                       // Ultra: 4 cascades, PCSS, full-res SSGI, volumetric clouds, PBR sky, TAA
@@ -267,7 +299,9 @@ void PS_ApplyQuality(PSSettings& s, int q)
             s.shadowPcss = true; s.shadowBlurOn = true; s.shadowCascades = 4;
             s.deferredOn = true; s.deferredHalf = false; s.aoOn = true; s.aoMode = AO_SSGI; s.skylightOn = true; s.ambientOn = true;
             s.contactOn = true; s.volFogOn = true; s.volGodrays = 1.0f; s.ssrOn = true; s.ssrDry = 0.18f; s.rainSurfOn = true; s.rainFallOn = true;
-            s.causticsOn = true; s.cloudsOn = true; s.pbrSkyOn = true; s.taaOn = true; s.fsrOn = false; s.fxaa = false; break;
+            s.causticsOn = true; s.cloudsOn = true; s.pbrSkyOn = true; s.taaOn = true; s.fsrOn = false; s.fxaa = false;
+            s.dynLightsOn = true; s.dynLightShadows = true; s.beamsOn = true; s.glareOn = true; s.wetStreaksOn = true; s.moonLightOn = true; s.moonShadows = true;
+            s.moonRaysOn = true; s.starsOn = true; s.cityGlowOn = true; s.carRainOn = true; s.carRainQuality = 2; s.giQuality = 2; s.aoMultiBounce = true; break;
     }
     ++g_worldGen;
 }
@@ -275,7 +309,7 @@ void PS_ApplyQuality(PSSettings& s, int q)
 int PS_QualityToSlider(int q) { return q == Q_LOW ? 0 : q == Q_MEDIUM ? 1 : q == Q_HIGH ? 2 : q == Q_ULTRA ? 3 : -1; }
 int PS_SliderToQuality(int i) { static const int k[4] = { Q_LOW, Q_MEDIUM, Q_HIGH, Q_ULTRA }; return k[i < 0 ? 0 : (i > 3 ? 3 : i)]; }
 
-// user presets (menu > Graphics > Presets: Save / Load / Delete): files/ProperGFX/presets/preset<slot>.ini, same format as the main ini
+// user presets (menu > Graphics > Presets: Save / Load / Delete): files/TyFMCGFX/presets/preset<slot>.ini, same format as the main ini
 static void PresetPath(const char* dir, int slot, char* out, size_t n) { snprintf(out, n, "%s/presets/preset%d.ini", dir, slot < 0 ? 0 : slot); }
 bool PS_PresetSave(const PSSettings& s, const char* dir, int slot)
 {

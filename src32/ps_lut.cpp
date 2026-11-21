@@ -126,7 +126,7 @@ bool LUT_Load(const char* dir, const char* name)
     {
         g_path[0] = 0; g_mtime = 0; g_size = -1;
         snprintf(ni.file, sizeof(ni.file), "%s", (!name || !name[0] || !strcasecmp(name, "auto") || !strcasecmp(name, "lut")) ? "lut.png/.bmp/.tga/.jpg" : name);
-        snprintf(ni.error, sizeof(ni.error), "file not found in files/ProperGFX (or files/ProperGFX/luts)");
+        snprintf(ni.error, sizeof(ni.error), "file not found in files/TyFMCGFX (or files/TyFMCGFX/luts)");
         // keep an already loaded texture? No: the user removed / renamed it, so the LUT must switch off
         ni.loaded = false; g_info = ni;
         return false;

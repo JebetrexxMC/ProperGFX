@@ -53,9 +53,9 @@ void main(){
   gl_FragColor = vec4(c, 1.0);
 }
 )PGFXGLSL" },
-  { "fragment/common.glsl", R"PGFXGLSL(// Proper GFX Mobile 1.4 (64-bit) - shared header of every post-process fragment shader.
-// All .glsl files of shaders/ are compiled INTO libProperGFX64.so by build.sh (tools/glsl2h.py) - edit them here and rebuild.
-// A shader that does not compile on a GPU is reported in the menu + propergfx_log.txt and that effect is skipped (the game keeps running).
+  { "fragment/common.glsl", R"PGFXGLSL(// TyFMCGFX 1.4 (64-bit) - shared header of every post-process fragment shader.
+// All .glsl files of shaders/ are compiled INTO libTyFMCGFX64.so by build.sh (tools/glsl2h.py) - edit them here and rebuild.
+// A shader that does not compile on a GPU is reported in the menu + tyfmcgfx_log.txt and that effect is skipped (the game keeps running).
 #ifdef GL_FRAGMENT_PRECISION_HIGH
 #define HP highp
 #else
@@ -74,7 +74,7 @@ uniform float RoadsWetness;     // Shows how much wet roads are (0.0 - 1.0)
 uniform float FarClipDist;      // Almost all the time it's 800.0, but not with the mods!
 uniform int EntityModel;        // Model index of the last entity being drawn (-1 if no model)
 
-// ---- Proper GFX extras ----
+// ---- TyFMCGFX extras ----
 uniform HP float PGFX_TimeSec;  // seconds, wraps every hour - use this for animation (an int millisecond Time overflows mediump)
 uniform vec4 PGFX_Sun;          // sun on screen: x, y (0..1), visibility (0..1), elevation (= SunVector.z)
 uniform vec4 PGFX_User0;        // menu > GLSL SHADERS > Custom parameters 1-4  ([GLSL] Param0..Param3)
@@ -82,7 +82,7 @@ uniform vec4 PGFX_User1;        // menu > GLSL SHADERS > Custom parameters 5-8  
 
 float lum3(vec3 c){ return dot(c, vec3(0.299, 0.587, 0.114)); }
 )PGFXGLSL" },
-  { "fragment/custom.glsl", R"PGFXGLSL(// [GLSL] CustomPass = 1 -> this pass runs LAST, on the finished Proper GFX picture (menu > GLSL SHADERS > Custom pass).
+  { "fragment/custom.glsl", R"PGFXGLSL(// [GLSL] CustomPass = 1 -> this pass runs LAST, on the finished TyFMCGFX picture (menu > GLSL SHADERS > Custom pass).
 // Write your own effect here. Everything from common.glsl is available (SunVector, Time, GameTimeSeconds, UnderWaterness,
 // RoadsWetness, FarClipDist, EntityModel, PGFX_TimeSec, PGFX_Sun) plus the 8 menu sliders PGFX_User0 / PGFX_User1.
 // uTex = the picture, uRes = (width, height, 1/width, 1/height).
@@ -107,7 +107,7 @@ void main(){
 }
 )PGFXGLSL" },
   { "fragment/def_ao.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.5.0 [AmbientOcclusion] - SSAO / HBAO / SSGI from the scene depth (half resolution by default).
+// TyFMCGFX 1.5.0 [AmbientOcclusion] - SSAO / HBAO / SSGI from the scene depth (half resolution by default).
 //   SSAO : 4 directions x 3 steps, averaged occlusion (soft, cheap)
 //   HBAO : 6 directions x 4 steps, horizon based (the highest occluder per direction counts = crisper creases)
 //   SSGI : HBAO + one bounce of the colour of the occluders (colour bleeding: a red wall tints the floor next to it)
@@ -115,6 +115,7 @@ void main(){
 #pragma include "def_common.glsl"
 uniform mediump sampler2D uScene;   // unit 1: scene colour copy
 uniform highp vec4 uP;              // x radius (m), y intensity, z mode (0 SSAO, 1 HBAO, 2 SSGI), w projection scale (proj[5] * 0.5)
+uniform highp vec4 uQ;              // 1.6.0 x GIQuality 0 / 1 / 2 (SSGI / HBAO: 4 / 6 / 8 directions)
 out vec4 oColor;
 void main(){
   highp float d;
@@ -125,16 +126,17 @@ void main(){
   float R = uP.x * (1.0 + dist * 0.004);                                   // a little wider far away (no "outline" look)
   float rs = clamp(R * uP.w / max(LinDepth(d), 0.1), uRes.w * 3.0, 0.12);  // screen radius (uv)
   int mode = int(uP.z + 0.5);
-  int dirs = mode == 0 ? 4 : 6, steps = mode == 0 ? 3 : 4;
+  int q = int(uQ.x + 0.5);
+  int dirs = mode == 0 ? 4 : (q == 0 ? 4 : (q == 1 ? 6 : 8)), steps = mode == 0 ? 3 : (q == 2 ? 5 : 4);
   float rnd = Hash12(gl_FragCoord.xy * 1.37 + uLin.w * 7.0) * 6.2831853, jit = IGN(gl_FragCoord.xy);   // white-noise rotation: IGN is near-periodic along x (stripes on walls)
   float occ = 0.0; vec3 gi = vec3(0.0);
   vec2 asp = vec2(uRes.y * uRes.z, 1.0);                                   // round in pixels
-  for (int i = 0; i < 6; ++i) {
+  for (int i = 0; i < 8; ++i) {
     if (i >= dirs) break;
     float a = rnd + float(i) * (6.2831853 / float(dirs));
     vec2 dir = vec2(cos(a), sin(a)) * asp;
     float hor = 0.0, sum = 0.0;
-    for (int j = 0; j < 4; ++j) {
+    for (int j = 0; j < 5; ++j) {
       if (j >= steps) break;
       float t = (float(j) + jit) / float(steps);
       vec2 uv = vUV + dir * rs * t * t;                                    // denser close to the pixel
@@ -157,7 +159,7 @@ void main(){
 }
 )PGFXGLSL" },
   { "fragment/def_bilateral.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.5.0 - depth-aware (bilateral) blur of the AO / GI buffer and the volumetric buffer. Separable: run horizontal + vertical.
+// TyFMCGFX 1.5.0 - depth-aware (bilateral) blur of the AO / GI buffer and the volumetric buffer. Separable: run horizontal + vertical.
 #pragma include "def_common.glsl"
 uniform mediump sampler2D uTex;     // unit 1
 uniform highp vec2 uDir;            // one texel of uTex along the blur axis
@@ -178,7 +180,7 @@ void main(){
 }
 )PGFXGLSL" },
   { "fragment/def_coc.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.5.0 [DepthOfField] Mode = Adaptive: circle of confusion per pixel (quarter resolution) from the scene depth and the
+// TyFMCGFX 1.5.0 [DepthOfField] Mode = Adaptive: circle of confusion per pixel (quarter resolution) from the scene depth and the
 // auto-focus distance. r = blur amount 0..1, read by fragment/dof.glsl (uCoc).
 #pragma include "def_common.glsl"
 uniform mediump sampler2D uFocus;   // unit 1: 1x1 focus
@@ -195,7 +197,7 @@ void main(){
   oColor = vec4(coc, 0.0, 0.0, 1.0);
 }
 )PGFXGLSL" },
-  { "fragment/def_common.glsl", R"PGFXGLSL(// Proper GFX 1.5.0 deferred screen-space lighting - shared helpers (pasted by "#pragma include", GLSL ES 3.00).
+  { "fragment/def_common.glsl", R"PGFXGLSL(// TyFMCGFX 1.5.0 deferred screen-space lighting - shared helpers (pasted by "#pragma include", GLSL ES 3.00).
 // The game's scene target carries OUR readable depth texture (ps_scene.cpp), so every pixel's world position is rebuilt from it:
 //   P = uIVP * ndc  (relative to the camera, double-precision matrix on the CPU - world coordinates reach 3000 m)
 // and its normal from the neighbouring depths. Every surface on screen gets the effect without patching the game's shaders.
@@ -242,12 +244,15 @@ float Fbm(vec2 p){ float v = 0.0, a = 0.5; for (int i = 0; i < 4; ++i) { v += a 
 float Luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 )PGFXGLSL" },
   { "fragment/def_composite.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.5.0 deferred COMPOSITE - one full-screen pass over the game's scene target right after RenderScene (3D world only:
+// TyFMCGFX 1.6.0 deferred COMPOSITE - one full-screen pass over the game's scene target right after RenderScene (3D world only:
 // the HUD, radar, menus and the pause menu are drawn later and are never touched). Per pixel, from the scene depth:
 //   [AmbientOcclusion] AO + SSGI bounce   [Skylight] sky occlusion of the sky ambient   [AmbientLighting] tricoloured ambient
 //   [ContactShadows] short screen-space rays toward the sun     [SSR] screen-space reflections (wet roads, puddles, flat shiny floors)
 //   [WorldRain] puddles + animated rain ripples while CWeather::WetRoads > 0     [WaterCaustics] on the sea floor and under water
 //   sky pixels: [PBRSky] Rayleigh / Mie sky blend, [VolumetricClouds], [Aurora]     then [VolumetricFog] and [RainFall] streaks
+//   1.6.0 (ZyZGfx 2.0 features): [DynamicLights] lamps / neon / car lights shade the world (+ screen-space shadows, fog glow),
+//   [LensGlare], [WetLightStreaks], [Moon] light / glitter, [NightLook], [NightSky] city glow / stars / Milky Way / shooting stars,
+//   AO multi-bounce, lightning flashes
 #pragma include "def_common.glsl"
 uniform mediump sampler2D uScene;   // unit 1: scene colour copy
 uniform mediump sampler2D uAO;      // unit 2: AO (a) + GI (rgb), blurred
@@ -261,6 +266,14 @@ uniform highp vec4 uW;              // x wetness (roads), y puddles, z ripples, 
 uniform highp vec4 uS;              // x PBR sky blend, y cloud coverage, z cloud density, w aurora strength
 uniform highp vec4 uS2;             // x cloud speed, y night 0..1, z rain fall streaks, w underwater 0..1
 uniform highp vec4 uOn;             // x volumetric fog on, y SSR steps, z AO buffer valid, w rain amount (CWeather::Rain)
+uniform highp vec4 uLP[32];         // dynamic lights: xyz position (world - camera), w radius (m)
+uniform highp vec4 uLC[32];         // rgb colour * intensity, w kind (0 lamp, 1 car, 2 point)
+uniform highp vec4 uL0;             // x light count, y strength, z lights with shadows, w debug
+uniform highp vec4 uL1;             // x glare, y wet streaks, z fog glow, w lightning flash
+uniform highp vec4 uMoon;           // xyz direction toward the moon, w moon light (0 = off)
+uniform highp vec4 uMoon2;          // x glitter, y lamp glow, z neon glow, w AO multi-bounce
+uniform highp vec4 uNL;             // x contrast, y exposure (EV), z colour shift, w night look amount (0 = off)
+uniform highp vec4 uSky2;           // x city glow, y stars, z Milky Way, w shooting stars (all * night)
 out vec4 oColor;
 
 vec3 Ambient(vec3 n){ return n.z >= 0.0 ? mix(uAmbH.rgb, uAmbS.rgb, n.z) : mix(uAmbH.rgb, uAmbG.rgb, -n.z); }
@@ -385,6 +398,61 @@ vec3 TraceSSR(vec3 C, vec3 R, float dist, out float hit){
   return vec3(0.0);
 }
 
+
+// ---------------------------------------------------------------- 1.6.0 night lighting
+vec3 Albedo(vec3 c){ return mix(vec3(0.35), c / (Luma(c) + 0.05) * 0.35, 0.6); }   // albedo proxy of a forward-lit pixel (ZyZ dynlights)
+float LightShadow(vec3 P0, vec3 L, float dl, float dist){
+  float j = IGN(gl_FragCoord.xy + 17.0), len = min(dl - 0.3, 6.0);
+  if (len <= 0.1) return 1.0;
+  for (int i = 0; i < 6; ++i) {
+    float t = (float(i) + j) / 6.0 * len;
+    vec3 s = ToScreen(P0 + L * t);
+    if (s.x < 0.0 || s.y < 0.0 || s.x > 1.0 || s.y > 1.0 || s.z >= 1.0) break;
+    float dz = LinDepth(s.z) - LinDepth(texture(uDepth, s.xy).r);
+    if (dz > 0.04 + dist * 0.001 && dz < 1.5) return 0.15 + 0.85 * float(i) / 6.0;
+  }
+  return 1.0;
+}
+// single-scattering of a point light along the view ray 0..tmax (closed form of the 1/r^2 integral)
+float InScatter(vec3 Lp, vec3 V, float tmax){
+  float t0 = dot(Lp, V); float h = max(length(Lp - V * t0), 0.15);
+  return (atan((tmax - t0) / h) - atan(-t0 / h)) / h;
+}
+vec3 MultiBounce(float v, vec3 alb){
+  vec3 a = 2.0404 * alb - 0.3324, b = -4.7951 * alb + 0.6417, c = 2.7552 * alb + 0.6903;
+  return max(vec3(v), ((v * a + b) * v + c) * v);
+}
+vec3 NightSky(vec3 v, float dark){
+  vec3 c = vec3(0.0);
+  float vz = max(v.z, 0.0);
+  c += vec3(1.0, 0.52, 0.22) * uSky2.x * exp(-vz * 7.0) * 0.10;                  // city light on the haze near the horizon
+  if (vz > 0.02 && dark > 0.0) {
+    vec2 q = vec2(atan(v.y, v.x) * 95.0, asin(clamp(v.z, -1.0, 1.0)) * 95.0);
+    vec2 i = floor(q), f = fract(q) - 0.5;
+    float h = Hash12(i);
+    float tw = 0.65 + 0.35 * sin(uCam.w * (2.0 + h * 5.0) + h * 40.0);
+    float st = step(0.985, h) * smoothstep(0.32, 0.0, length(f - (vec2(Hash12(i + 2.3), Hash12(i + 6.1)) - 0.5) * 0.4)) * tw;
+    c += vec3(0.85, 0.9, 1.0) * st * uSky2.y * smoothstep(0.02, 0.2, vz) * 0.9;
+    vec3 nb = normalize(vec3(0.35, 0.55, 0.76));                                  // Milky Way band
+    float band = exp(-pow(dot(v, nb), 2.0) * 28.0) * (0.4 + Fbm(q * 0.04) * 1.2);
+    c += vec3(0.55, 0.6, 0.85) * band * uSky2.z * 0.045 * smoothstep(0.02, 0.3, vz);
+    float seed = floor(uCam.w / 5.0), ph = fract(uCam.w / 5.0);                   // one shooting star every ~5 s (some slots empty)
+    if (Hash12(vec2(seed, 1.7)) > 0.4 && ph < 0.25) {
+      float a = Hash12(vec2(seed, 3.1)) * 6.2831853, e = 0.35 + Hash12(vec2(seed, 5.3)) * 0.4;
+      vec3 d0 = normalize(vec3(cos(a) * cos(e), sin(a) * cos(e), sin(e)));
+      vec3 side = normalize(cross(d0, vec3(0.0, 0.0, 1.0)));
+      vec3 d1 = normalize(d0 + side * 0.25 - vec3(0.0, 0.0, 0.08));
+      float k = ph / 0.25;
+      vec3 head = normalize(mix(d0, d1, k)), tail = normalize(mix(d0, d1, max(k - 0.25, 0.0)));
+      vec3 seg = head - tail; float sl = max(dot(seg, seg), 1e-6);
+      float u = clamp(dot(v - tail, seg) / sl, 0.0, 1.0);
+      float dd = length(v - (tail + seg * u));
+      c += vec3(1.0, 0.95, 0.85) * smoothstep(0.0025, 0.0, dd) * u * (1.0 - k) * uSky2.w * 2.0;
+    }
+  }
+  return c * dark;
+}
+
 void main(){
   vec4 sc = texture(uScene, vUV);
   vec3 col = sc.rgb;
@@ -401,7 +469,8 @@ void main(){
     float vis = mix(1.0, ao.a, uAmbG.w);
     vec3 amb = Ambient(N);
     float sky = clamp(N.z * 0.5 + 0.5, 0.0, 1.0) * mix(1.0, ao.a * ao.a, uAmbH.w);
-    col *= vis;
+    vec3 alb = Albedo(col);
+    col *= uMoon2.w > 0.5 ? MultiBounce(vis, clamp(col * 1.6, 0.0, 1.0)) : vec3(vis);
     col += col * (amb - vec3(Luma(amb))) * uAmbS.w * 1.2;                   // tint by sky / horizon / ground
     col += col * amb * (sky - 0.5) * uAmbH.w * 0.5;                         // skylight: open surfaces get more sky light, covered ones less
     col += ao.rgb * uA.x * (0.35 + col);
@@ -449,12 +518,98 @@ void main(){
       float depthB = max(-W.z, 0.0);
       col += col * Caustic(W.xy, uCam.w) * uW.w * (0.3 + sunH) * exp(-depthB * 0.12) * 0.5;
     }
+    // --- [DynamicLights] every lamp / neon / car light the game reports (ZyZ window: (1 - (d/R)^4)^2 / d^2)
+    if (uL0.x > 0.5) {
+      vec3 acc = vec3(0.0), spec = vec3(0.0);
+      int n = int(uL0.x), ns = int(uL0.z);
+      vec3 P0 = C + N * (0.05 + dist * 0.002);
+      for (int i = 0; i < 32; ++i) {
+        if (i >= n) break;
+        vec3 Lp = uLP[i].xyz - C; float R = uLP[i].w;
+        float d2 = dot(Lp, Lp);
+        if (d2 >= R * R) continue;
+        float dl = sqrt(d2); vec3 L = Lp / max(dl, 1e-3);
+        float x = d2 / (R * R); float win = 1.0 - x * x; win *= win;
+        float att = win / max(d2 * 0.25, 0.35) * 1.2;
+        float ndl = clamp((dot(N, L) + 0.05) / 1.05, 0.0, 1.0);
+        if (ndl <= 0.0) continue;
+        float sh = (i < ns && dist < 60.0) ? LightShadow(P0, L, dl, dist) : 1.0;
+        vec3 li = uLC[i].rgb * att * ndl * sh;
+        acc += li;
+        vec3 H = normalize(L - V);
+        spec += li * pow(max(dot(Nr, H), 0.0), 48.0) * (0.15 + wet * 2.5 + puddle * 3.0);
+      }
+      col += (alb * acc + spec) * uL0.y;
+      if (uL0.w > 0.5) col = mix(col, vec3(1.0, 0.1, 0.8) * min(Luma(acc), 1.0), 0.35);
+    }
+    // --- [WetLightStreaks] long vertical reflections of the lights on wet / rainy roads
+    if (uL1.y > 0.0 && uL0.x > 0.5 && wet > 0.02) {
+      vec3 st = vec3(0.0);
+      for (int i = 0; i < 12; ++i) {
+        if (i >= int(uL0.x)) break;
+        vec3 Lp = uLP[i].xyz; if (Lp.z <= C.z + 0.3) continue;
+        vec3 Lm = vec3(Lp.xy, 2.0 * C.z - Lp.z);                                   // light mirrored in this pixel's ground plane
+        vec3 s = ToScreen(Lm); if (s.z >= 1.0) continue;
+        float dl = length(Lp - C);
+        float dx = (vUV.x - s.x) * uRes.x * uRes.w, dy = vUV.y - s.y;
+        float wd = 0.004 + 0.06 / (1.0 + dl * 0.15);
+        float g = exp(-dx * dx / (wd * wd)) * exp(-dy * dy * 6.0) / (1.0 + dl * dl * 0.004);
+        st += uLC[i].rgb * g;
+      }
+      col += st * wet * (0.4 + puddle) * uL1.y * 0.5;
+    }
+    // --- [Moon] light at night (directional, from the sun's opposite side of the sky)
+    if (uMoon.w > 0.0 && uMoon.z > 0.02) col += alb * vec3(0.55, 0.65, 0.95) * max(dot(N, uMoon.xyz), 0.0) * uMoon.w * 0.12;
   } else {
     // --- sky
     if (uS.x > 0.0) { vec3 ps = PbrSky(V); col = mix(col, ps, uS.x * smoothstep(-0.02, 0.06, V.z)); }
     if (uS.z > 0.0 && uS.y > 0.0) { vec4 cl = Clouds(V); col = col * cl.a + cl.rgb; }
     if (uS.w > 0.0 && uS2.y > 0.05) col += Aurora(V) * uS.w * uS2.y;
+    float dark = 1.0 - smoothstep(0.06, 0.35, Luma(sc.rgb));                    // only on a dark sky (never over the moon / bright clouds)
+    if (uSky2.x + uSky2.y + uSky2.z + uSky2.w > 0.0) col += NightSky(V, dark);
   }
+  float tmax = d < 0.99999 ? length(C) : 3000.0;
+  // --- [Moon] glitter on the sea (the sea writes no depth: the plane z = 0 in front of the floor / sky)
+  if (uMoon2.x > 0.0 && uMoon.z > 0.02 && V.z < -0.01 && uCam.z > 0.0) {
+    float tw = -uCam.z / V.z;
+    if (tw < tmax && tw < 1500.0) {
+      vec2 wp = uCam.xy + V.xy * tw;
+      vec2 g = vec2(Noise2(wp * 0.35 + uCam.w * 0.4), Noise2(wp * 0.35 - uCam.w * 0.35 + 9.0)) - 0.5;
+      vec3 Nw = normalize(vec3(g * 0.35, 1.0));
+      float sp = pow(max(dot(reflect(V, Nw), uMoon.xyz), 0.0), 220.0);
+      float sparkle = step(0.72, Noise2(wp * 4.0 + uCam.w * 2.0));
+      col += vec3(0.8, 0.85, 1.0) * sp * (0.4 + sparkle * 2.0) * uMoon2.x * 1.5;
+    }
+  }
+  // --- [DynamicLights] fog glow + lamp halos + [LensGlare] star streaks
+  if (uL0.x > 0.5 && (uL1.z > 0.0 || uL1.x > 0.0 || uMoon2.y > 0.0)) {
+    vec3 gl = vec3(0.0);
+    float aspect = uRes.x * uRes.w;
+    for (int i = 0; i < 16; ++i) {
+      if (i >= int(uL0.x)) break;
+      vec3 Lp = uLP[i].xyz;
+      vec3 Lc = uLC[i].rgb;
+      if (uL1.z > 0.0) gl += Lc * InScatter(Lp, V, tmax) * uL1.z * 0.015;
+      vec3 s = ToScreen(Lp);
+      if (s.z >= 1.0 || s.x < -0.1 || s.y < -0.1 || s.x > 1.1 || s.y > 1.1) continue;
+      float occ = (s.x > 0.0 && s.y > 0.0 && s.x < 1.0 && s.y < 1.0) ? step(LinDepth(s.z) - 0.6, LinDepth(texture(uDepth, s.xy).r)) : 0.0;
+      if (occ <= 0.0) continue;
+      vec2 dv = (vUV - s.xy) * vec2(aspect, 1.0);
+      float dl = length(Lp), sz = clamp(2.5 / max(dl, 1.0), 0.004, 0.06);
+      float r2 = dot(dv, dv);
+      float halo = exp(-r2 / (sz * sz * 4.0));
+      float glow = uLC[i].w > 1.5 ? uMoon2.z : uMoon2.y;
+      gl += Lc * halo * glow * 0.25;
+      if (uL1.x > 0.0) {
+        float sx = exp(-abs(dv.y) / (sz * 0.06)) * exp(-abs(dv.x) / (sz * 6.0));
+        float sy = exp(-abs(dv.x) / (sz * 0.06)) * exp(-abs(dv.y) / (sz * 4.0));
+        gl += Lc * (sx + sy) * uL1.x * 0.18 / (1.0 + dl * 0.03);
+      }
+    }
+    col += gl * uL0.y;
+  }
+  // --- lightning flash (CWeather::LightningFlash)
+  if (uL1.w > 0.0) col += (d < 0.99999 ? col * 1.4 + vec3(0.04, 0.045, 0.06) : vec3(0.35, 0.38, 0.5)) * uL1.w;
   // --- volumetric fog (half-res buffer)
   if (uOn.x > 0.5) { vec4 vf = texture(uVol, vUV); col = col * vf.a + vf.rgb; }
   // --- falling rain streaks
@@ -471,11 +626,21 @@ void main(){
     }
     col = mix(col, vec3(0.75, 0.8, 0.85) * (0.3 + Luma(col)), clamp(r * uS2.z * 0.25, 0.0, 0.4));
   }
+  // --- [NightLook] exposure, contrast, cool shadows, neon saturation
+  if (uNL.w > 0.0) {
+    vec3 nc = col * exp2(uNL.y);
+    nc = max((nc - 0.18) * uNL.x + 0.18, vec3(0.0));
+    float l = Luma(nc);
+    nc = mix(nc, l * vec3(0.55, 0.72, 1.15), uNL.z * (1.0 - smoothstep(0.0, 0.35, l)) * 0.6);
+    float mx = max(nc.r, max(nc.g, nc.b)), sat = mx - min(nc.r, min(nc.g, nc.b));
+    nc += nc * smoothstep(0.35, 0.9, mx) * sat * uMoon2.z * 0.6;
+    col = mix(col, nc, uNL.w);
+  }
   oColor = vec4(col, sc.a);
 }
 )PGFXGLSL" },
   { "fragment/def_focus.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.5.0 [DepthOfField] Mode = Adaptive: auto focus. 1x1 target: distance at the screen centre (9 taps, the nearest wins a
+// TyFMCGFX 1.5.0 [DepthOfField] Mode = Adaptive: auto focus. 1x1 target: distance at the screen centre (9 taps, the nearest wins a
 // bit more), adapted over time like a camera's focus motor. Packed into RG8 (log-encoded, 16 bit) - GLES 3.0 cannot render to float.
 #pragma include "def_common.glsl"
 uniform mediump sampler2D uPrev;    // unit 1: previous focus (1x1)
@@ -496,7 +661,7 @@ void main(){
 }
 )PGFXGLSL" },
   { "fragment/def_fsr.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.5.0 [FSR] AMD FidelityFX Super Resolution 1 - RCAS (robust contrast-adaptive sharpening), the second half of FSR 1,
+// TyFMCGFX 1.5.0 [FSR] AMD FidelityFX Super Resolution 1 - RCAS (robust contrast-adaptive sharpening), the second half of FSR 1,
 // with its noise-aware lobe limit. GTA SA's internal resolution is set by the game's own Resolution option (lower it and FSR restores
 // the crispness); the EASU upscale itself needs the game to render into a smaller target, which the mobile renderer does not expose.
 precision mediump float;
@@ -523,7 +688,7 @@ void main(){
 }
 )PGFXGLSL" },
   { "fragment/def_taa.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.5.0 [TAA] temporal anti-aliasing: each pixel is reprojected into the previous frame with the scene depth and both
+// TyFMCGFX 1.5.0 [TAA] temporal anti-aliasing: each pixel is reprojected into the previous frame with the scene depth and both
 // cameras (no motion vectors needed for the static world), the history is clamped to the 3x3 neighbourhood of the current frame
 // (no ghosting) and blended. GTA SA's projection cannot be jittered, so this smooths shimmering / crawling edges rather than resolving
 // sub-pixel detail (that is FXAA / SMAA's job).
@@ -557,7 +722,7 @@ void main(){
 }
 )PGFXGLSL" },
   { "fragment/def_volume.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.5.0 [VolumetricFog] height fog with god rays + [VolumetricHeadlights] (experimental), ray-marched per pixel
+// TyFMCGFX 1.5.0 [VolumetricFog] height fog with god rays + [VolumetricHeadlights] (experimental), ray-marched per pixel
 // (half resolution, 12 steps, dithered start). The sun's visibility along the ray is read from the dynamic-shadow cascade, so light shafts
 // appear between buildings / trees; without dynamic shadows the fog is still lit by the sun (forward scattering) but has no shafts.
 // Output: rgb = in-scattered light, a = transmittance (scene * a + rgb).
@@ -570,6 +735,10 @@ uniform highp vec4 uAmb;            // ambient fog colour (rgb), w headlight str
 uniform highp vec4 uHL0;            // left headlight (world - camera), w on
 uniform highp vec4 uHL1;            // right headlight
 uniform highp vec4 uHLD;            // headlight direction (world)
+uniform highp vec4 uMoonV;          // 1.6.0 [Moon] Rays: xyz toward the moon, w strength (0 = off)
+uniform highp vec4 uBm[8];          // 1.6.0 [VolumetricLights] beams of every car: xyz lamp (world - camera), w intensity
+uniform highp vec4 uBd[8];          //   xyz direction, w unused
+uniform highp vec4 uBn;             //   x beam count, y strength
 out vec4 oColor;
 void main(){
   highp float d;
@@ -582,6 +751,9 @@ void main(){
   float mu = dot(dir, uSunD.xyz);
   float g = 0.55;
   float phase = (1.0 - g * g) / (12.566 * pow(1.0 + g * g - 2.0 * g * mu, 1.5)) * 6.0 + 0.25;   // Henyey-Greenstein, forward scattering
+  float muM = dot(dir, uMoonV.xyz);
+  float phaseM = (1.0 - g * g) / (12.566 * pow(1.0 + g * g - 2.0 * g * muM, 1.5)) * 6.0 + 0.25;
+  int nb = int(uBn.x);
   vec3 ins = vec3(0.0); float T = 1.0;
   for (int i = 0; i < N; ++i) {
     highp vec3 X = dir * t;
@@ -595,6 +767,15 @@ void main(){
         vis = mix(1.0, texture(uMap, vec3(sc.xy, sc.z - 0.0015)), clamp(uV.z, 0.0, 1.0));
     }
     vec3 Li = uSunC.rgb * (phase * vis * uSunD.w) + uAmb.rgb;
+    if (uMoonV.w > 0.0) Li += vec3(0.45, 0.55, 0.85) * phaseM * vis * uMoonV.w * 0.12;
+    for (int k = 0; k < 8; ++k) {
+      if (k >= nb) break;
+      highp vec3 lv = X - uBm[k].xyz;
+      float dl = length(lv);
+      if (dl > 40.0) continue;
+      float cone = smoothstep(0.88, 0.98, dot(lv / max(dl, 1e-3), uBd[k].xyz));
+      Li += vec3(1.0, 0.93, 0.82) * cone * uBm[k].w * uBn.y * 5.0 / (1.0 + dl * dl * 0.035);
+    }
     if (uHL0.w > 0.5) {
       for (int k = 0; k < 2; ++k) {
         highp vec3 lv = X - (k == 0 ? uHL0.xyz : uHL1.xyz);
@@ -666,7 +847,7 @@ void main(){
   gl_FragColor = vec4(c*0.25, 1.0);
 }
 )PGFXGLSL" },
-  { "fragment/final.glsl", R"PGFXGLSL(// Proper GFX final composite. Compiled as a VARIANT per enabled-feature set: the mod puts "#define FX_xxx 1" lines and
+  { "fragment/final.glsl", R"PGFXGLSL(// TyFMCGFX final composite. Compiled as a VARIANT per enabled-feature set: the mod puts "#define FX_xxx 1" lines and
 // "#define TM_MODE n" in front of this file, so every effect that is switched off is removed at compile time and costs nothing.
 // FX_AA FX_CA FX_CAS FX_DOF FX_OUTLINE FX_CEL FX_AUTOEXP FX_BLOOM FX_RAYS FX_FLARE FX_GLOW FX_GOLDEN FX_LUT FX_UNDER FX_VHS FX_VIGNETTE FX_GRAIN FX_DITHER FX_GRADE FX_GAMMA
 #pragma include "common.glsl"
@@ -926,7 +1107,7 @@ vec3 applyLut(vec3 c){
 }
 )PGFXGLSL" },
   { "fragment/shadow_apply.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.4.3 deferred shadows - APPLY pass: multiplies the game's scene colour by the shadow mask, right after the game
+// TyFMCGFX 1.4.3 deferred shadows - APPLY pass: multiplies the game's scene colour by the shadow mask, right after the game
 // rendered the 3D world (RenderScene) and before its post effects / HUD. Blend = (ZERO, SRC_COLOR): scene *= mask.
 precision mediump float;
 uniform mediump sampler2D uMask;
@@ -935,7 +1116,7 @@ out vec4 oColor;
 void main(){ oColor = vec4(texture(uMask, vUV).rgb, 1.0); }
 )PGFXGLSL" },
   { "fragment/shadow_blur.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.5.0 soft shadow mask: separable 9-tap gaussian of the shadow mask, depth aware (an edge of a building does not
+// TyFMCGFX 1.5.0 soft shadow mask: separable 9-tap gaussian of the shadow mask, depth aware (an edge of a building does not
 // bleed its shadow onto the sky / the street far behind it). Run twice (horizontal, vertical) right after the mask pass.
 precision highp float;
 uniform mediump sampler2D uMask;     // unit 0: mask (or the horizontal result)
@@ -976,7 +1157,7 @@ void main(){
 }
 )PGFXGLSL" },
   { "fragment/shadow_depth.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.4.6 deferred shadows - CASTER pass (fragment). Depth only (no colour attachment).
+// TyFMCGFX 1.4.6 deferred shadows - CASTER pass (fragment). Depth only (no colour attachment).
 // Alpha-tested casters (tree leaves, fences, grass cards) are cut out with the GAME'S OWN alpha-test threshold (uAlpha > 0), sampled
 // at mip 0 like libZyZGFX64, so a tree casts its leaves and not the box of its leaf cards. uAlpha = 0: solid caster.
 precision mediump float;
@@ -986,7 +1167,7 @@ in highp vec2 vUV;
 void main(){ if (uAlpha > 0.0 && textureLod(uTex, vUV, 0.0).a < uAlpha) discard; }
 )PGFXGLSL" },
   { "fragment/shadow_mask.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.5.0 deferred (screen-space) sun shadows - MASK pass (2 or 4 cascades, PCSS contact hardening). Technique of libZyZyGFX64 (see the GLSL-Samples-source-mod repo):
+// TyFMCGFX 1.5.0 deferred (screen-space) sun shadows - MASK pass (2 or 4 cascades, PCSS contact hardening). Technique of libZyZyGFX64 (see the GLSL-Samples-source-mod repo):
 //  * the game's scene target gets OUR depth texture instead of its depth renderbuffer (ps_scene.cpp), so after RenderScene the
 //    depth of every pixel on screen is readable;
 //  * each pixel's world position is rebuilt from that depth (inverse view-projection, relative to the camera for precision),
@@ -1016,7 +1197,7 @@ uniform highp vec4 uTex;                 // texel size in metres near, far; 1 / 
 uniform highp vec2 uFog;                 // the game's distance fog: start (m), 1 / (end - start); 0,0 = unknown
 uniform mediump vec4 uShade;             // x strength (0..1, sun fade + timecyc applied), y tint amount, z far-cascade fade start (0..1 of its square)
 uniform mediump vec3 uTint;              // colour of the shadowed part (Tint R/G/B)
-// SAShaderL-compatible globals (set by Proper GFX like for every other .glsl)
+// SAShaderL-compatible globals (set by TyFMCGFX like for every other .glsl)
 uniform int ShaderFlags;                 // 0x20000000 | 0x100 = deferred shadow mask pass (set, not needed by this shader)
 uniform vec3 SunVector;
 uniform float UnderWaterness;
@@ -1128,7 +1309,7 @@ void main(){
 //   //@@decl  -> inserted before main()
 //   //@@apply -> inserted right before the game applies its fog ("fcolor" = the lit pixel, Out_FogAmt = the game's fog amount)
 // Every patched shader is test-compiled on your GPU first; if this file breaks it, the mod falls back to a simpler patch / the
-// game's original shader (no crash) and writes the driver error to files/ProperGFX/propergfx_log.txt.
+// game's original shader (no crash) and writes the driver error to files/TyFMCGFX/tyfmcgfx_log.txt.
 // Uniforms set by the mod: PS_Shadow = (strength x fade, bias, PCF radius, 0), PS_ShadowMap = sun depth map (unit 3, RGB-packed 24-bit),
 // PS_ShadowTint = (tint r, g, b, amount)  <- [DynamicShadows] Tint: colours the shadowed part (sky-blue ambient instead of plain black)
 //@@decl
@@ -1237,7 +1418,7 @@ varying vec2 vUV;
 void main(){ vUV = aUV.xy * uUvScale; gl_Position = uLightVP * (uObj * vec4(aPos, 1.0)); }
 )PGFXGLSL" },
   { "vertex/shadow_depth.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.4.3 deferred shadows - CASTER pass (vertex).
+// TyFMCGFX 1.4.3 deferred shadows - CASTER pass (vertex).
 // The world meshes the game drew this frame (captured from rqDrawIndexed: buffers + ObjMatrix) are drawn again from the sun
 // into a depth texture, once per cascade (near / far). Same technique as libZyZyGFX64's caster replay.
 layout(location = 0) in vec3 Position;
@@ -1249,7 +1430,7 @@ out highp vec2 vUV;
 void main(){ vUV = TexCoord0 * uUvScale; gl_Position = uLightVP * (uObj * vec4(Position, 1.0)); }
 )PGFXGLSL" },
   { "vertex/shadow_screen.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.4.3 deferred shadows - full-screen triangle (no vertex buffer: gl_VertexID 0..2)
+// TyFMCGFX 1.4.3 deferred shadows - full-screen triangle (no vertex buffer: gl_VertexID 0..2)
 out highp vec2 vUV;
 void main(){ vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2)); vUV = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }
 )PGFXGLSL" },

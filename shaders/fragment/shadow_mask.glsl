@@ -1,5 +1,5 @@
 #version 300 es
-// Proper GFX 1.5.0 deferred (screen-space) sun shadows - MASK pass (2 or 4 cascades, PCSS contact hardening). Technique of libZyZyGFX64 (see the GLSL-Samples-source-mod repo):
+// TyFMCGFX 1.5.0 deferred (screen-space) sun shadows - MASK pass (2 or 4 cascades, PCSS contact hardening). Technique of libZyZyGFX64 (see the GLSL-Samples-source-mod repo):
 //  * the game's scene target gets OUR depth texture instead of its depth renderbuffer (ps_scene.cpp), so after RenderScene the
 //    depth of every pixel on screen is readable;
 //  * each pixel's world position is rebuilt from that depth (inverse view-projection, relative to the camera for precision),
@@ -29,7 +29,7 @@ uniform highp vec4 uTex;                 // texel size in metres near, far; 1 / 
 uniform highp vec2 uFog;                 // the game's distance fog: start (m), 1 / (end - start); 0,0 = unknown
 uniform mediump vec4 uShade;             // x strength (0..1, sun fade + timecyc applied), y tint amount, z far-cascade fade start (0..1 of its square)
 uniform mediump vec3 uTint;              // colour of the shadowed part (Tint R/G/B)
-// SAShaderL-compatible globals (set by Proper GFX like for every other .glsl)
+// SAShaderL-compatible globals (set by TyFMCGFX like for every other .glsl)
 uniform int ShaderFlags;                 // 0x20000000 | 0x100 = deferred shadow mask pass (set, not needed by this shader)
 uniform vec3 SunVector;
 uniform float UnderWaterness;

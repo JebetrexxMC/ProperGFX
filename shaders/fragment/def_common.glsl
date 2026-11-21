@@ -1,4 +1,4 @@
-// Proper GFX 1.5.0 deferred screen-space lighting - shared helpers (pasted by "#pragma include", GLSL ES 3.00).
+// TyFMCGFX 1.5.0 deferred screen-space lighting - shared helpers (pasted by "#pragma include", GLSL ES 3.00).
 // The game's scene target carries OUR readable depth texture (ps_scene.cpp), so every pixel's world position is rebuilt from it:
 //   P = uIVP * ndc  (relative to the camera, double-precision matrix on the CPU - world coordinates reach 3000 m)
 // and its normal from the neighbouring depths. Every surface on screen gets the effect without patching the game's shaders.

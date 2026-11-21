@@ -1,11 +1,11 @@
-// Honest feature table (generated from FEATURES.md, 1.5.0).
+// Honest feature table (generated from FEATURES.md, 1.6.0).
 // status: 0 = implemented, 1 = approximated (screen-space substitute), 2 = not possible on this engine from a mod
 #pragma once
 struct PSFeature { const char* name; int status; const char* note; };
 static const PSFeature kFeatures[] = {
- {"Full deferred rendering", 1, "64-bit 1.5.0: deferred screen-space lighting (ps_deferred.cpp, def_*.glsl) on the game's scene colour + readable depth, run on the render thread right after RenderScene. The game itself stays a forward renderer: there is no G-buffer with albedo / roughness, so lighting is rebuilt from depth (position + normal)."},
- {"Per-pixel lighting with hundreds of lights", 2, "Needs a G-buffer and the game's light list on the GPU; SA's lights are vertex-lit inside its own shaders. Only the player's headlights are added (see Volumetric headlights)."},
- {"Volumetric light beams", 1, "64-bit: ray-marched sun beams through the shadow map (def_volume.glsl) + experimental volumetric headlight cones."},
+ {"Full deferred rendering", 1, "64-bit 1.5.0: deferred **screen-space lighting** (ps_deferred.cpp, def_*.glsl) on the game's scene colour + readable depth, run on the render thread right after RenderScene. The game itself stays a forward renderer: there is no G-buffer with albedo / roughness, so lighting is rebuilt from depth (position + normal)."},
+ {"Per-pixel lighting with hundreds of lights", 1, "64-bit 1.6.0 [DynamicLights]: every lamp / neon / car light / point light the game reports (CShadows + CPointLights hooks, 128-light pool) lights the depth-reconstructed world; the 32 nearest per frame, the 4 nearest with screen-space shadows."},
+ {"Volumetric light beams", 0, "64-bit: sun and moon beams through the shadow map (def_volume.glsl) + 1.6.0 [VolumetricLights] headlight cones of every car (CVehicle::DoHeadLightBeam, 8 nearest)."},
  {"Shadermaps (normal / roughness / metallic) + POM", 2, "Needs per-texture extra maps (TXDP streaming) and tangents in the game's meshes."},
  {"Dynamic 4 cascaded shadows (PCSS)", 0, "64-bit: [DynamicShadows] Cascades = 2 / 4, PCSS = 1 (blocker search, contact-hardening penumbra). 32-bit: one map."},
  {"Soft shadow mask with gaussian blur", 0, "64-bit: depth-aware gaussian blur of the mask (shadow_blur.glsl, SoftMaskBlur)."},
@@ -54,16 +54,23 @@ static const PSFeature kFeatures[] = {
  {"Artistic: Aurora", 0, "64-bit: borealis on night sky pixels ([Aurora])."},
  {"Unlimited TXDPs", 2, "IDE / streaming parser hooks (separate mod)."},
  {"11k textures configured", 2, "PC data pack, not code."},
- {"ModLoader implementation", 0, "AML mod; LUTs / custom.glsl / ini load from files/ProperGFX/."},
- {"Public API for modders", 0, "64-bit: src64/propergfx_api.h, AML interface ProperGFX + exported ProperGFX_* C functions (API.md)."},
- {"In-game GUI editor", 0, "Firestorm-style menu (white accents), every setting live, presets 1-8, OK / Cancel."},
+ {"ModLoader implementation", 0, "AML mod; LUTs / custom.glsl / ini load from files/TyFMCGFX/."},
+ {"Public API for modders", 0, "64-bit: src64/propergfx_api.h, AML interface TyFMCGFX (old name ProperGFX still registered) + exported ProperGFX_* C functions (see API.md)."},
+ {"In-game GUI editor", 0, "Firestorm Preferences menu (green accents), search box with on-screen keyboard, every setting live, presets 1-8, OK / Cancel."},
  {"Lens flare", 1, "Screen-space ghosts / halo."},
  {"Anisotropic hair / SSS / terrain splat maps", 2, "Need per-material shaders and data."},
  {"Contact shadows", 0, "64-bit: short screen-space rays toward the sun."},
  {"Volumetric headlights (experimental)", 1, "64-bit: light cones from the player's vehicle at night."},
  {"Foliage backlights", 2, "Foliage cannot be told apart in a screen-space pass."},
  {"Relief mapping", 2, "Same as POM."},
- {"Floating settings button", 0, "Box with a vector icon (gear + half-lit disc, no texture, no text); shrinks when idle."},
+ {"Floating settings button", 0, "1.6.0: Firestorm status-bar pill (clock, icon, FPS, red end cap); shrinks to the icon when idle; [Button] Lock."},
  {"No effects in main / pause / floating menu", 0, "1.5.0: effects run inside the frame (after the scene / before CPostEffects::MobileRender, below the HUD) and stop while CTimer::m_UserPause or m_CodePause is set."},
+ {"Moon light, moon shadows, moon rays, sea glitter", 0, "64-bit 1.6.0 [Moon] (ZyZ 2.0 \"moon\" module)."},
+ {"Night look and night sky", 0, "64-bit 1.6.0 [NightLook] / [NightSky]: night grade, lamp / neon / fog glow, city glow, stars, Milky Way, shooting stars."},
+ {"Lens glare and wet light streaks", 0, "64-bit 1.6.0 [LensGlare], [WetLightStreaks]."},
+ {"Lightning and drying roads", 0, "64-bit 1.6.0 [Weather]: CWeather::LightningFlash lights the scene; wetness fades over DryingTime."},
+ {"Rain on cars", 1, "64-bit 1.6.0 [RainOnCars]: bead pattern + wet film in the vehicle env-map shader (only shaders with Out_Tex0)."},
+ {"Draw distance / streaming memory", 0, "64-bit 1.6.0 [Performance]."},
+ {"Lit / living windows, PBR material highlights, render scale (ZyZ 2.0)", 2, "Need ZyZ's own per-model texture tables / a lower-resolution scene target the game does not provide; left out on purpose."},
 };
 static const int kFeatureCount = (int)(sizeof(kFeatures) / sizeof(kFeatures[0]));

@@ -1,5 +1,5 @@
 #version 300 es
-// Proper GFX 1.5.0 [VolumetricFog] height fog with god rays + [VolumetricHeadlights] (experimental), ray-marched per pixel
+// TyFMCGFX 1.5.0 [VolumetricFog] height fog with god rays + [VolumetricHeadlights] (experimental), ray-marched per pixel
 // (half resolution, 12 steps, dithered start). The sun's visibility along the ray is read from the dynamic-shadow cascade, so light shafts
 // appear between buildings / trees; without dynamic shadows the fog is still lit by the sun (forward scattering) but has no shafts.
 // Output: rgb = in-scattered light, a = transmittance (scene * a + rgb).
@@ -12,6 +12,10 @@ uniform highp vec4 uAmb;            // ambient fog colour (rgb), w headlight str
 uniform highp vec4 uHL0;            // left headlight (world - camera), w on
 uniform highp vec4 uHL1;            // right headlight
 uniform highp vec4 uHLD;            // headlight direction (world)
+uniform highp vec4 uMoonV;          // 1.6.0 [Moon] Rays: xyz toward the moon, w strength (0 = off)
+uniform highp vec4 uBm[8];          // 1.6.0 [VolumetricLights] beams of every car: xyz lamp (world - camera), w intensity
+uniform highp vec4 uBd[8];          //   xyz direction, w unused
+uniform highp vec4 uBn;             //   x beam count, y strength
 out vec4 oColor;
 void main(){
   highp float d;
@@ -24,6 +28,9 @@ void main(){
   float mu = dot(dir, uSunD.xyz);
   float g = 0.55;
   float phase = (1.0 - g * g) / (12.566 * pow(1.0 + g * g - 2.0 * g * mu, 1.5)) * 6.0 + 0.25;   // Henyey-Greenstein, forward scattering
+  float muM = dot(dir, uMoonV.xyz);
+  float phaseM = (1.0 - g * g) / (12.566 * pow(1.0 + g * g - 2.0 * g * muM, 1.5)) * 6.0 + 0.25;
+  int nb = int(uBn.x);
   vec3 ins = vec3(0.0); float T = 1.0;
   for (int i = 0; i < N; ++i) {
     highp vec3 X = dir * t;
@@ -37,6 +44,15 @@ void main(){
         vis = mix(1.0, texture(uMap, vec3(sc.xy, sc.z - 0.0015)), clamp(uV.z, 0.0, 1.0));
     }
     vec3 Li = uSunC.rgb * (phase * vis * uSunD.w) + uAmb.rgb;
+    if (uMoonV.w > 0.0) Li += vec3(0.45, 0.55, 0.85) * phaseM * vis * uMoonV.w * 0.12;
+    for (int k = 0; k < 8; ++k) {
+      if (k >= nb) break;
+      highp vec3 lv = X - uBm[k].xyz;
+      float dl = length(lv);
+      if (dl > 40.0) continue;
+      float cone = smoothstep(0.88, 0.98, dot(lv / max(dl, 1e-3), uBd[k].xyz));
+      Li += vec3(1.0, 0.93, 0.82) * cone * uBm[k].w * uBn.y * 5.0 / (1.0 + dl * dl * 0.035);
+    }
     if (uHL0.w > 0.5) {
       for (int k = 0; k < 2; ++k) {
         highp vec3 lv = X - (k == 0 ? uHL0.xyz : uHL1.xyz);

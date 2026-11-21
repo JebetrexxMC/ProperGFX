@@ -229,7 +229,7 @@ bool World_OnShaderBuild(const char* pxl, const char* vtx, std::string& outP, st
         return false;
     }
     if (!g_glInfoLogged) { g_glInfoLogged = true; const char* r = (const char*)glGetString(GL_RENDERER); const char* v = (const char*)glGetString(GL_VERSION);
-                           PS_FileLog("== Proper GFX shader self-test ==\nGL_RENDERER: %s\nGL_VERSION: %s", r ? r : "?", v ? v : "?"); }
+                           PS_FileLog("== TyFMCGFX shader self-test ==\nGL_RENDERER: %s\nGL_VERSION: %s", r ? r : "?", v ? v : "?"); }
     ++g_bs.tested;
     char err[600];
     if (TrialBuild(pxl, vtx, err, sizeof(err))) { ++g_bs.passed; if (e.shadow) ++g_shadowOk; return false; }

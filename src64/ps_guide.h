@@ -1,4 +1,4 @@
-// Proper GFX Mobile (64-bit) - feature guide (menu > FEATURE GUIDE, mirrored in FEATURES.md).
+// TyFMCGFX (64-bit) - feature guide (menu > FEATURE GUIDE, mirrored in FEATURES.md).
 // "what" = the feature description; "here" = what this 64-bit build really does.
 // status: 0 = implemented, 1 = partly (the useful half exists), 2 = not possible / not in this build
 #pragma once
@@ -40,7 +40,7 @@ static const PSGuide kGuide[] = {
    "A digital file containing a mathematical formula that translates specific input color values from an image or video into new output color values. "
    "To install an LUT, grab your own LUT formula via .png and go through the .ini configs. "
    "Make sure you have the directory set (Folders=) along with the texture's name (include .png) in the File= thingy for the mod to read the formula.",
-   "Implemented: [LUT] Enabled / Amount / Folders / File in TYFMC.ProperGFX.ini (lut.glsl). Folders = empty -> files/ProperGFX (+ luts); a name is relative to files/ProperGFX, or a full path. "
+   "Implemented: [LUT] Enabled / Amount / Folders / File in TyFMCGFX.ini (lut.glsl). Folders = empty -> files/TyFMCGFX (+ luts); a name is relative to files/TyFMCGFX, or a full path. "
    "File = name with extension (.png / .bmp / .tga / .jpg, any upper/lower case) or auto = lut.*. Strips 256x16, 1024x32, 4096x64 or squares 64x64 / 512x512; reloaded live; also pickable in the menu." },
  { "[Surface Based Reflections]", 1,
    "Metal and Glass can now have reflections.",
@@ -55,5 +55,20 @@ static const PSGuide kGuide[] = {
  { "[Physical Based Rendering Reflections]", 1,
    "Vehicle models now has light bouncing off object surfaces based on real-world physics, using roughness and metalness instead of arbitrary shine values.",
    "Partly: [SurfaceShading] Specular / Reflections rescale the game's vehicle highlight and environment-map strength. True PBR needs roughness / metalness textures the game's models do not have." },
+ { "[DynamicLights] (1.6.0, from ZyZGfx 2.0)", 0,
+   "Every street lamp, neon sign, building light, car lamp and point light lights the world around it in real time, with shadows for the nearest ones.",
+   "Implemented: hooks on CShadows::StoreStaticShadow / StoreCarLightShadow and CPointLights::AddLight fill a 128-light pool; def_composite.glsl lights the 32 nearest per pixel, the 4 nearest with screen-space shadows. ReplaceGameShadows hides the game's flat light pools." },
+ { "[VolumetricLights] (1.6.0)", 0,
+   "Car headlights become visible light cones in the air.",
+   "Implemented: CVehicle::DoHeadLightBeam is hooked for every car; the 8 nearest beams are ray-marched through the fog in def_volume.glsl. ReplaceGameBeams hides the game's flat beam polygons." },
+ { "[Moon] / [NightLook] / [NightSky] (1.6.0)", 0,
+   "Moonlight with shadows and god rays, glitter on the sea, a cinematic night grade, glowing lamps and neon, city glow, stars, the Milky Way and shooting stars.",
+   "Implemented: the shadow map follows the moon at night (sun vector mirrored), moon rays through the volumetric fog, night grade / halos / sky in def_composite.glsl." },
+ { "[Weather] / [RainOnCars] (1.6.0)", 1,
+   "Lightning lights up the city, roads dry slowly after the rain, and rain beads form on cars.",
+   "Implemented: CWeather::LightningFlash flashes the scene, wetness fades over DryingTime. Rain on cars is a bead pattern + wet film in the vehicle env-map shader (only where the shader has Out_Tex0)." },
+ { "[Lit windows / PBR highlights / RenderScale] (ZyZ 2.0)", 2,
+   "ZyZGfx 2.0.7 also has living windows, PBR material highlights and a render-scale option.",
+   "NOT ported: they depend on ZyZ's own per-model texture tables and on a lower-resolution scene target the game does not give a mod." },
 };
 static const int kGuideCount = (int)(sizeof(kGuide) / sizeof(kGuide[0]));

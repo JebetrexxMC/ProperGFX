@@ -1,4 +1,4 @@
-# Proper GFX Mobile public API (64-bit, 1.5.0)
+# TyFMCGFX public API (64-bit, 1.6.0)
 
 Header: [`src64/propergfx_api.h`](src64/propergfx_api.h). Copy it into your mod; nothing else is needed.
 
@@ -12,7 +12,7 @@ IProperGFX* pgfx = nullptr;
 
 ON_MOD_LOAD()   // or OnAllModsLoaded
 {
-    pgfx = (IProperGFX*)GetInterface("ProperGFX");     // registered by libProperGFX64.so at load
+    pgfx = (IProperGFX*)GetInterface("TyFMCGFX");      // registered by libTyFMCGFX64.so at load (the 1.5 name "ProperGFX" still works)
     if (pgfx && pgfx->apiVersion >= PROPERGFX_API_VERSION)
     {
         pgfx->SetValue("Bloom", "Intensity", "0.6");
@@ -21,7 +21,7 @@ ON_MOD_LOAD()   // or OnAllModsLoaded
     }
 }
 ```
-Without AML interfaces you can use the exported C functions: `dlsym(dlopen("libProperGFX64.so", RTLD_NOLOAD), "ProperGFX_SetValue")`.
+Without AML interfaces you can use the exported C functions: `dlsym(dlopen("libTyFMCGFX64.so", RTLD_NOLOAD), "ProperGFX_SetValue")`.
 
 ## Functions
 | Function | What it does |
@@ -31,12 +31,12 @@ Without AML interfaces you can use the exported C functions: `dlsym(dlopen("libP
 | `GetValue(section, key, out, len)` | Read a value as text (the value currently applied, plus changes still queued). |
 | `SetFloat` / `SetBool` | Typed helpers for `SetValue`. |
 | `SetEnabled(bool)` / `IsEnabled()` | Master switch (`[General] Enabled`). |
-| `Reload()` | Re-read `TYFMC.ProperGFX.ini`. |
+| `Reload()` | Re-read `TyFMCGFX.ini`. |
 | `Save()` | Write the current settings to the ini. API changes are not saved unless you call this. |
 | `OpenMenu()` | Open the in-game settings menu. |
 | `SetLutFile(folder, file)` | `[LUT] Folders` + `File` (for example `("luts", "warm.png")`). |
 
 ## Rules
-* Section / key names are the ones in `TYFMC.ProperGFX.ini` (case-insensitive). Day / night values use `Key.Day` / `Key.Night`.
+* Section / key names are the ones in `TyFMCGFX.ini` (case-insensitive). Day / night values use `Key.Day` / `Key.Night`.
 * All calls are thread safe. Changes are queued and applied on the render thread at the start of the next frame.
 * Combo values accept their names (`("AmbientOcclusion", "Mode", "SSGI")`, `("General", "Quality", "Ultra")`).

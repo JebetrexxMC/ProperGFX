@@ -1,5 +1,5 @@
 #version 300 es
-// Proper GFX 1.5.0 - depth-aware (bilateral) blur of the AO / GI buffer and the volumetric buffer. Separable: run horizontal + vertical.
+// TyFMCGFX 1.5.0 - depth-aware (bilateral) blur of the AO / GI buffer and the volumetric buffer. Separable: run horizontal + vertical.
 #pragma include "def_common.glsl"
 uniform mediump sampler2D uTex;     // unit 1
 uniform highp vec2 uDir;            // one texel of uTex along the blur axis

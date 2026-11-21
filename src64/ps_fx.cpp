@@ -148,7 +148,7 @@ void DrawTri()
     ++g_passes;
 }
 
-// SAShaderL-compatible + Proper GFX uniforms, set after every glUseProgram (only the ones a .glsl declares are found)
+// SAShaderL-compatible + TyFMCGFX uniforms, set after every glUseProgram (only the ones a .glsl declares are found)
 PSFrameInfo g_fi;
 void Common(const Prog& p, int pass)
 {

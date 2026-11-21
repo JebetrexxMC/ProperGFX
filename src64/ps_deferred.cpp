@@ -49,7 +49,7 @@ bool Get(Prog& p)
     if (!GLSL_Source("vertex/shadow_screen.glsl", vs) || !GLSL_Source(p.fs, fs)) { PS_Log("deferred: %s is not built into the mod", p.fs); return false; }
     GLuint v = 0, f = 0;
     if (!Compile(v, GL_VERTEX_SHADER, vs.c_str(), "shadow_screen.glsl")) return false;
-    if (!Compile(f, GL_FRAGMENT_SHADER, fs.c_str(), p.fs)) { glDeleteShader(v); GLSL_MarkFailed(p.fs, "did not compile - see propergfx_log.txt"); return false; }
+    if (!Compile(f, GL_FRAGMENT_SHADER, fs.c_str(), p.fs)) { glDeleteShader(v); GLSL_MarkFailed(p.fs, "did not compile - see tyfmcgfx_log.txt"); return false; }
     GLuint id = glCreateProgram(); glAttachShader(id, v); glAttachShader(id, f); glLinkProgram(id); glDeleteShader(v); glDeleteShader(f);
     GLint ok = 0; glGetProgramiv(id, GL_LINK_STATUS, &ok);
     if (!ok) { char log[512] = ""; glGetProgramInfoLog(id, sizeof(log), nullptr, log); PS_Log("deferred: %s link failed: %s", p.fs, log); glDeleteProgram(id); GLSL_MarkFailed(p.fs, "link failed"); return false; }
@@ -60,6 +60,7 @@ inline GLint U(GLuint p, const char* n) { return glGetUniformLocation(p, n); }
 inline void S1i(GLuint p, const char* n, int v) { GLint l = U(p, n); if (l >= 0) glUniform1i(l, v); }
 inline void S2(GLuint p, const char* n, float a, float b) { GLint l = U(p, n); if (l >= 0) glUniform2f(l, a, b); }
 inline void S4(GLuint p, const char* n, float a, float b, float c, float d) { GLint l = U(p, n); if (l >= 0) glUniform4f(l, a, b, c, d); }
+inline void S4v(GLuint p, const char* n, const float* v, int cnt) { GLint l = U(p, n); if (l >= 0 && cnt > 0) glUniform4fv(l, cnt, v); }
 inline void SM(GLuint p, const char* n, const float* m) { GLint l = U(p, n); if (l >= 0) glUniformMatrix4fv(l, 1, GL_FALSE, m); }
 inline void Tex(int unit, GLuint t) { glActiveTexture(GL_TEXTURE0 + unit); glBindTexture(GL_TEXTURE_2D, t); }
 inline void Draw() { glDrawArrays(GL_TRIANGLES, 0, 3); ++D.st.passes; }
@@ -176,7 +177,9 @@ bool Deferred_Wanted(const PSSettings& s)
 {
     if (!s.enabled) return false;
     const bool lit = s.deferredOn && (s.aoOn || s.ambientOn || s.skylightOn || s.contactOn || s.volFogOn || s.headlightsOn || s.ssrOn || s.rainSurfOn ||
-                                      s.rainFallOn || s.causticsOn || s.pbrSkyOn || s.cloudsOn || s.auroraOn);
+                                      s.rainFallOn || s.causticsOn || s.pbrSkyOn || s.cloudsOn || s.auroraOn ||
+                                      s.dynLightsOn || s.beamsOn || s.moonLightOn || s.moonRaysOn || s.moonGlitterOn || s.nightLookOn ||
+                                      s.starsOn || s.cityGlowOn || s.lightningOn);
     const bool dof = s.postFx && s.tiltShift && s.dofMode == 2;
     return lit || dof || Deferred_PostWanted(s);
 }
@@ -200,15 +203,24 @@ void Deferred_AfterScene(const PSSettings& s, int level)
     GLDefaults();
 
     const float wet = s.rainSurfOn ? fminf(fmaxf(D.f.wet, 0.f), 1.f) : 0.f;
+    const float night = fminf(fmaxf(D.f.night, 0.f), 1.f);
+    const float moonUp = night > 0.05f && D.f.moon[2] > 0.02f ? night : 0.f;
+    const int   nL = (s.deferredOn && s.dynLightsOn && level < 3) ? (level >= 2 ? (D.f.nLights < 12 ? D.f.nLights : 12) : D.f.nLights) : 0;
+    const int   nB = (s.deferredOn && s.beamsOn && night > 0.15f && level < 3) ? D.f.nBeams : 0;
+    const bool  moonRays = s.moonRaysOn && moonUp > 0.f && s.moonRays > 0.01f;
+    const float flash = s.lightningOn ? fminf(fmaxf(D.f.lightning, 0.f), 1.f) * s.lightning : 0.f;
+    const bool  nightFx = nL > 0 || (s.moonLightOn && moonUp > 0.f) || (s.moonGlitterOn && moonUp > 0.f) || (s.nightLookOn && night > 0.02f) ||
+                          ((s.starsOn || s.cityGlowOn) && night > 0.05f) || flash > 0.01f;
+    D.st.lights = nL; D.st.beams = nB;
     const bool wantAO   = s.deferredOn && s.aoOn && s.aoIntensity > 0.01f && level < 3;
-    const bool wantVol  = s.deferredOn && ((s.volFogOn && s.volFogDensity.v > 0.001f) || (s.headlightsOn && D.f.headlights)) && level < 3;
+    const bool wantVol  = s.deferredOn && ((s.volFogOn && s.volFogDensity.v > 0.001f) || (s.headlightsOn && D.f.headlights) || nB > 0 || moonRays) && level < 3;
     const bool wantSky  = s.deferredOn && ((s.pbrSkyOn && s.pbrSkyBlend > 0.01f) || s.cloudsOn || (s.auroraOn && D.f.night > 0.05f));
     const bool wantComp = s.deferredOn && (wantAO || wantVol || wantSky || s.ambientOn || s.skylightOn || s.contactOn || s.ssrOn || wet > 0.01f ||
-                                           (s.rainFallOn && D.f.rain > 0.01f) || s.causticsOn);
+                                           (s.rainFallOn && D.f.rain > 0.01f) || s.causticsOn || nightFx);
 
     if (wantComp)
     {
-        if (!Get(D.comp)) { Note("def_composite.glsl failed - see propergfx_log.txt"); return; }
+        if (!Get(D.comp)) { Note("def_composite.glsl failed - see tyfmcgfx_log.txt"); return; }
         CopyColour((GLuint)c.fbo, w, h);
         const int sc = (s.deferredHalf || level >= 1) ? 2 : 1;
         const int hw = (w + sc - 1) / sc, hh = (h + sc - 1) / sc;
@@ -221,6 +233,7 @@ void Deferred_AfterScene(const PSSettings& s, int level)
             Tex(0, c.depthTex); Tex(1, D.copyTex); S1i(p, "uScene", 1);
             const int mode = (s.aoMode == AO_SSGI && level >= 2) ? AO_HBAO : s.aoMode;
             S4(p, "uP", s.aoRadius, s.aoIntensity, (float)mode, c.proj[5] * 0.5f);
+            S4(p, "uQ", (float)(level >= 1 && s.giQuality > 0 ? s.giQuality - 1 : s.giQuality), 0.f, 0.f, 0.f);
             Draw();
             const GLuint b = D.bil.id;
             glUseProgram(b); Common(b, c, e, w, h); S1i(b, "uTex", 1);
@@ -248,6 +261,18 @@ void Deferred_AfterScene(const PSSettings& s, int level)
                 S4(p, "uHL0", D.f.hl0[0] - c.cam[0], D.f.hl0[1] - c.cam[1], D.f.hl0[2] - c.cam[2], hl ? 1.f : 0.f);
                 S4(p, "uHL1", D.f.hl1[0] - c.cam[0], D.f.hl1[1] - c.cam[1], D.f.hl1[2] - c.cam[2], hl ? 1.f : 0.f);
                 S4(p, "uHLD", D.f.hlDir[0], D.f.hlDir[1], D.f.hlDir[2], 0.f);
+                S4(p, "uMoonV", D.f.moon[0], D.f.moon[1], D.f.moon[2], moonRays ? s.moonRays * moonUp : 0.f);
+                {
+                    float bm[32], bd[32];
+                    for (int i = 0; i < nB; ++i)
+                    {
+                        const PSBeam& b = D.f.beams[i];
+                        bm[i * 4] = b.pos[0] - c.cam[0]; bm[i * 4 + 1] = b.pos[1] - c.cam[1]; bm[i * 4 + 2] = b.pos[2] - c.cam[2]; bm[i * 4 + 3] = b.intensity * night;
+                        bd[i * 4] = b.dir[0]; bd[i * 4 + 1] = b.dir[1]; bd[i * 4 + 2] = b.dir[2]; bd[i * 4 + 3] = 0.f;
+                    }
+                    S4v(p, "uBm", bm, nB); S4v(p, "uBd", bd, nB);
+                    S4(p, "uBn", (float)nB, s.beamStrength, 0.f, 0.f);
+                }
                 Draw();
                 if (c.mapOk) Tex(2, 0);
                 const GLuint b = D.bil.id;
@@ -273,6 +298,29 @@ void Deferred_AfterScene(const PSSettings& s, int level)
             S4(p, "uS", s.pbrSkyOn ? s.pbrSkyBlend : 0.f, s.cloudCoverage, s.cloudsOn ? s.cloudDensity : 0.f, s.auroraOn ? s.auroraStrength : 0.f);
             S4(p, "uS2", s.cloudSpeed, D.f.night, s.rainFallOn ? s.rainFall : 0.f, D.f.underwater);
             S4(p, "uOn", volOk ? 1.f : 0.f, level >= 1 ? 10.f : 18.f, aoOk ? 1.f : 0.f, fminf(fmaxf(D.f.rain, 0.f), 1.f));
+            {   // 1.6.0 night lighting
+                float lp[128], lc[128];
+                for (int i = 0; i < nL; ++i)
+                {
+                    const PSLight& L = D.f.lights[i];
+                    lp[i * 4] = L.pos[0] - c.cam[0]; lp[i * 4 + 1] = L.pos[1] - c.cam[1]; lp[i * 4 + 2] = L.pos[2] - c.cam[2];
+                    lp[i * 4 + 3] = L.radius * s.dynLightRange;
+                    const float k = L.intensity * (0.35f + 0.65f * night);       // lamps are faint by day (like the game's light pools)
+                    lc[i * 4] = L.col[0] * k; lc[i * 4 + 1] = L.col[1] * k; lc[i * 4 + 2] = L.col[2] * k; lc[i * 4 + 3] = (float)L.kind;
+                }
+                S4v(p, "uLP", lp, nL); S4v(p, "uLC", lc, nL);
+                const bool fogGlow = s.nightLookOn && night > 0.05f;
+                S4(p, "uL0", (float)nL, s.dynLightStrength, (s.dynLightShadows && level < 1) ? 4.f : 0.f, s.dynLightDebug ? 1.f : 0.f);
+                S4(p, "uL1", s.glareOn ? s.glareStrength * night : 0.f, s.wetStreaksOn ? s.wetStreaks : 0.f,
+                   fogGlow ? s.fogGlow * (1.f + D.f.rain * 2.f) * night : 0.f, flash);
+                S4(p, "uMoon", D.f.moon[0], D.f.moon[1], D.f.moon[2], s.moonLightOn ? s.moonLight * moonUp : 0.f);
+                S4(p, "uMoon2", s.moonGlitterOn ? s.moonGlitter * moonUp : 0.f, fogGlow ? s.lampGlow : 0.f, fogGlow ? s.neonGlow : 0.f,
+                   (s.aoMultiBounce && aoOk) ? 1.f : 0.f);
+                S4(p, "uNL", s.nightContrast, s.nightExposure, s.nightColourShift, s.nightLookOn ? night : 0.f);
+                const float clear = 1.f - fminf(fmaxf(D.f.rain, 0.f), 1.f);
+                S4(p, "uSky2", s.cityGlowOn ? s.cityGlow * night : 0.f, s.starsOn ? s.stars * night * clear : 0.f,
+                   s.starsOn ? s.milkyWay * night * clear : 0.f, s.starsOn ? s.shootingStars * night * clear : 0.f);
+            }
             Draw();
             BlitTo(D.compRT, (GLuint)c.fbo, w, h);
             D.st.composite = true;

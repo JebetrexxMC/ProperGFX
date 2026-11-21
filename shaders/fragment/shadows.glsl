@@ -3,7 +3,7 @@
 //   //@@decl  -> inserted before main()
 //   //@@apply -> inserted right before the game applies its fog ("fcolor" = the lit pixel, Out_FogAmt = the game's fog amount)
 // Every patched shader is test-compiled on your GPU first; if this file breaks it, the mod falls back to a simpler patch / the
-// game's original shader (no crash) and writes the driver error to files/ProperGFX/propergfx_log.txt.
+// game's original shader (no crash) and writes the driver error to files/TyFMCGFX/tyfmcgfx_log.txt.
 // Uniforms set by the mod: PS_Shadow = (strength x fade, bias, PCF radius, 0), PS_ShadowMap = sun depth map (unit 3, RGB-packed 24-bit),
 // PS_ShadowTint = (tint r, g, b, amount)  <- [DynamicShadows] Tint: colours the shadowed part (sky-blue ambient instead of plain black)
 //@@decl

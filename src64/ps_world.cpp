@@ -7,6 +7,7 @@
 #include <GLES2/gl2.h>
 #include <atomic>
 #include <string.h>
+#include <math.h>
 #include <unordered_map>
 
 namespace {
@@ -121,10 +122,19 @@ bool World_PatchPixelSource(unsigned flags, const char* src, std::string& out, b
     // 2) specular strength
     if (Replace(out, "fcolor.xyz += Out_Spec;", "fcolor.xyz += Out_Spec * (1.0 + PS_A.z);")) any = true;
     // 3) vehicle / env-map reflection strength
+    // 1.6.0 [RainOnCars] (ZyZGfx 2.0): water beads on the paint + a wet film (stronger env reflection) while it rains.
+    //   PS_B.w = quality (integer part) + amount (fraction). Only shaders with the vehicle env map AND texture coordinates.
+    const bool beads = out.find("Out_Tex0") != std::string::npos;
+    const std::string rain = beads ? std::string("\nif (PS_B.w > 0.0) { mediump float ps_rq = floor(PS_B.w); mediump float ps_ra = PS_B.w - ps_rq;\n"
+        "mediump vec2 ps_q = Out_Tex0 * (28.0 + ps_rq * 14.0); mediump vec2 ps_c = fract(ps_q) - 0.5;\n"
+        "mediump float ps_h = fract(sin(dot(floor(ps_q), vec2(12.9898, 78.233))) * 43758.5453);\n"
+        "mediump float ps_b = smoothstep(0.24, 0.06, length(ps_c - (ps_h - 0.5) * 0.35)) * step(0.5, ps_h);\n"
+        "fcolor.xyz = fcolor.xyz * (1.0 - 0.1 * ps_ra) + (vec3(0.55) + fcolor.xyz) * ps_b * ps_ra * 0.35; }\n") : std::string();
+    const std::string film = "clamp(EnvMapCoefficient * (1.0 + PS_A.w) * (1.0 + fract(PS_B.w) * 0.6), 0.0, 1.0)";
     if (Replace(out, "fcolor.xyz = mix(fcolor.xyz,ReflTexture.xyz, EnvMapCoefficient);",
-                "fcolor.xyz = mix(fcolor.xyz,ReflTexture.xyz, clamp(EnvMapCoefficient * (1.0 + PS_A.w), 0.0, 1.0));")) any = true;
+                "fcolor.xyz = mix(fcolor.xyz,ReflTexture.xyz, " + film + ");" + rain)) any = true;
     if (Replace(out, "fcolor.xyz = mix(fcolor.xyz, texture2D(EnvMap, Out_Tex1).xyz, EnvMapCoefficient);",
-                "fcolor.xyz = mix(fcolor.xyz, texture2D(EnvMap, Out_Tex1).xyz, clamp(EnvMapCoefficient * (1.0 + PS_A.w), 0.0, 1.0));")) any = true;
+                "fcolor.xyz = mix(fcolor.xyz, texture2D(EnvMap, Out_Tex1).xyz, " + film + ");" + rain)) any = true;
     // 4) water detail contrast
     if (Replace(out, "fcolor *= vec4(Out_Color.xyz * waterDetail * 1.1, Out_Color.w);",
                 "fcolor *= vec4(Out_Color.xyz * (1.0 + (waterDetail - 1.0) * (1.0 + PS_B.y)) * 1.1, Out_Color.w);")) any = true;
@@ -222,7 +232,7 @@ bool World_OnShaderBuild(const char* pxl, const char* vtx, std::string& outP, st
         return false;
     }
     if (!g_glInfoLogged) { g_glInfoLogged = true; const char* r = (const char*)glGetString(GL_RENDERER); const char* v = (const char*)glGetString(GL_VERSION);
-                           PS_FileLog("== Proper GFX shader self-test ==\nGL_RENDERER: %s\nGL_VERSION: %s", r ? r : "?", v ? v : "?"); }
+                           PS_FileLog("== TyFMCGFX shader self-test ==\nGL_RENDERER: %s\nGL_VERSION: %s", r ? r : "?", v ? v : "?"); }
     ++g_bs.tested;
     char err[600];
     if (TrialBuild(pxl, vtx, err, sizeof(err))) { ++g_bs.passed; if (e.shadow) ++g_shadowOk; return false; }
@@ -280,6 +290,8 @@ void World_BeginFrame(const PSSettings& s, float wetRoads)
         B[0] = s.wetWorld ? w * s.wetStrength : 0.f;
         B[1] = s.waterOn ? s.waterDetail - 1.f : 0.f;
         B[2] = s.celWorld ? s.celWorldLevels : 0.f;
+        const float a = s.carRainOn ? fminf(w, 0.99f) : 0.f;           // 1.6.0 [RainOnCars]
+        B[3] = a > 0.01f ? (float)s.carRainQuality + a : 0.f;
     }
     float LVP[16], SH[4];
     Shadow_Uniforms(LVP, SH);

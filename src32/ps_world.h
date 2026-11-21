@@ -1,4 +1,4 @@
-// Proper GFX Mobile - patches for the game's own object shaders (fog, specular, reflections, water, wet, cel)
+// TyFMCGFX - patches for the game's own object shaders (fog, specular, reflections, water, wet, cel)
 #pragma once
 #include <string>
 #include "ps_settings.h"

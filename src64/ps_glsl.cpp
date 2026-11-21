@@ -59,7 +59,7 @@ void GLSL_Init(const char* filesDir)
     std::lock_guard<std::recursive_mutex> l(g_mu);
     g_files.clear();
     for (int i = 0; i < kEmbeddedGlslCount; ++i) Entry(kEmbeddedGlsl[i].path);
-    // 1.4.0 wrote copies to files/ProperGFX/shaders and read them back from there - that folder is not used any more: remove our files
+    // 1.4.0 wrote copies to files/TyFMCGFX/shaders and read them back from there - that folder is not used any more: remove our files
     if (!filesDir || !filesDir[0]) return;
     char p[700]; int n = 0;
     for (int i = 0; i < kEmbeddedGlslCount; ++i)

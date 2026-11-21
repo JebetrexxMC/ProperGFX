@@ -1,5 +1,5 @@
 #version 300 es
-// Proper GFX 1.5.0 [DepthOfField] Mode = Adaptive: circle of confusion per pixel (quarter resolution) from the scene depth and the
+// TyFMCGFX 1.5.0 [DepthOfField] Mode = Adaptive: circle of confusion per pixel (quarter resolution) from the scene depth and the
 // auto-focus distance. r = blur amount 0..1, read by fragment/dof.glsl (uCoc).
 #pragma include "def_common.glsl"
 uniform mediump sampler2D uFocus;   // unit 1: 1x1 focus

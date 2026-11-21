@@ -1,13 +1,13 @@
-// Proper GFX Mobile (formerly Proper Shader Mobile) - settings (files/ProperGFX/TYFMC.ProperGFX.ini).
+// TyFMCGFX (formerly TyFMCGFX / Proper Shader Mobile) - settings (files/TyFMCGFX/TyFMCGFX.ini).
 // Modelled on how the PC mod is configured: one section per feature, each with an Enabled switch,
 // separate Day / Night values for the parameters that matter, and Low / Medium / High presets.
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
 
-#define PS_VERSION     "1.5.0"
-#define PS_DIR_NAME    "ProperGFX"              // files/ProperGFX (1.3 and older: files/ProperShader, moved automatically)
-#define PS_INI_NAME    "TYFMC.ProperGFX.ini"    // 1.3 and older: settings.ini (renamed automatically)
+#define PS_VERSION     "1.6.0"
+#define PS_DIR_NAME    "TyFMCGFX"               // files/TyFMCGFX (1.4-1.5: files/TyFMCGFX, 1.3 and older: files/ProperShader - moved automatically)
+#define PS_INI_NAME    "TyFMCGFX.ini"           // 1.4-1.5: TyFMCGFX.ini, 1.3 and older: settings.ini (renamed automatically)
 #define PS_BUTTON_HIDDEN_BELOW 0.06f            // 64-bit: anything below = 0 = invisible (an old 0.05 from the 32-bit range included)
 #define PS_BUTTON_MIN_OPACITY 0.0f              // 64-bit: Opacity 0 = button label, fill AND outline fully transparent (32-bit build keeps 0.05)
 
@@ -63,11 +63,11 @@ struct PSSettings
     DN    contrast       { 1.05f, 1.05f };
     DN    saturation     { 1.08f, 1.00f };
     float vibrance = 0.20f, temperature = 0.f, tint = 0.f, gamma = 1.f, lift = 0.f, gain = 1.f;
-    // ---- [LUT] colour lookup texture: files/ProperGFX/<LUTFile> (png / bmp / tga / jpg; 256x16, 1024x32, 4096x64, 64x64, 512x512) ----
+    // ---- [LUT] colour lookup texture: files/TyFMCGFX/<LUTFile> (png / bmp / tga / jpg; 256x16, 1024x32, 4096x64, 64x64, 512x512) ----
     bool  lutOn        = true;
     float lutAmount    = 1.0f;       // 1.4: default 1 (was 0, so a dropped-in LUT seemed to do nothing)
-    char  lutFolder[128] = "";       // [LUT] Folders = directory of the LUT: empty = files/ProperGFX (+ /luts); relative to files/ProperGFX, or an absolute path
-    char  lutFile[64]  = "auto";     // "auto" = the first lut.png / lut.bmp / lut.tga / lut.jpg (any case) in files/ProperGFX or files/ProperGFX/luts
+    char  lutFolder[128] = "";       // [LUT] Folders = directory of the LUT: empty = files/TyFMCGFX (+ /luts); relative to files/TyFMCGFX, or an absolute path
+    char  lutFile[64]  = "auto";     // "auto" = the first lut.png / lut.bmp / lut.tga / lut.jpg (any case) in files/TyFMCGFX or files/TyFMCGFX/luts
     // ---- [Dithering] / [Vignette] / [FilmGrain] / [ChromaticAberration] ----
     bool  dither       = true;
     bool  vignette     = true;
@@ -176,6 +176,49 @@ struct PSSettings
     bool  shadowPcss   = true;       // [DynamicShadows] PCSS: contact-hardening penumbra (blocker search)
     bool  shadowBlurOn = true;       // [DynamicShadows] soft shadow mask: depth-aware gaussian blur of the mask
     int   shadowCascades = 2;        // [DynamicShadows] 2 or 4 cascades
+    // ---- 1.6.0: features of ZyZGfx 2.0 (found with Ghidra in libZyZGfx64.so 2.0.7, ported to the deferred pipeline) ----
+    bool  dynLightsOn  = true;       // [DynamicLights] street lamps / neon / car lamps / point lights shade the world (CShadows + CPointLights hooks)
+    float dynLightStrength = 1.0f;
+    float dynLightRange = 1.0f;      // radius multiplier
+    bool  dynLightShadows = true;    // screen-space shadows for the 4 nearest lights
+    bool  dynLightDebug = false;     // [DynamicLights] ShadowDebug: tint every light's area
+    bool  replaceGameShadows = false;// skip the game's own additive light pools (CShadows::StoreStaticShadow type 2)
+    bool  beamsOn      = true;       // [VolumetricLights] headlight beams of every car (CVehicle::DoHeadLightBeam)
+    float beamStrength = 0.8f;
+    bool  replaceGameBeams = false;  // skip the game's flat beam polygons
+    bool  glareOn      = true;       // [LensGlare] star streaks on bright lights
+    float glareStrength = 0.6f;
+    bool  wetStreaksOn = true;       // [WetLightStreaks] long vertical reflections of lights on wet roads
+    float wetStreaks   = 0.8f;
+    bool  moonLightOn  = true;       // [Moon] directional moon light at night
+    float moonLight    = 0.5f;
+    bool  moonShadows  = true;       // the dynamic shadows follow the moon at night
+    float moonShadowStrength = 0.55f;
+    bool  moonRaysOn   = true;       // god rays from the moon through the volumetric fog
+    float moonRays     = 0.5f;
+    bool  moonGlitterOn = true;      // moon glitter on the sea
+    float moonGlitter  = 0.6f;
+    bool  nightLookOn  = true;       // [NightLook]
+    float nightContrast = 1.08f, nightExposure = 0.15f, nightColourShift = 0.35f;
+    float nightBloom   = 0.3f;       // extra bloom at night
+    float lampGlow     = 0.5f, neonGlow = 0.45f, fogGlow = 0.5f;
+    bool  cityGlowOn   = true;       // [NightSky] orange city light on the night sky and the clouds
+    float cityGlow     = 0.5f;
+    bool  starsOn      = true;       // stars + Milky Way + shooting stars on the night sky
+    float stars        = 0.7f, milkyWay = 0.5f, shootingStars = 0.5f;
+    bool  aoMultiBounce = true;      // [AmbientOcclusion] MultiBounce (Jimenez GTAO multi-bounce approximation)
+    int   giQuality    = 1;          // [AmbientOcclusion] GIQuality 0 low / 1 medium / 2 high (sample count)
+    bool  lightningOn  = true;       // [Weather] Lightning: flashes light up the world (CWeather::LightningFlash)
+    float lightning    = 0.8f;
+    bool  dryingOn     = true;       // [Weather] Drying: roads dry slowly after the rain (seconds)
+    float dryingTime   = 90.f;
+    bool  carRainOn    = true;       // [RainOnCars] beads + wet paint on vehicles while it rains (vehicle shader patch)
+    int   carRainQuality = 1;        // 0 medium / 1 high / 2 ultra (bead density)
+    float drawDistance = 1.0f;       // [Performance] DrawDistance multiplier (RwCameraSetFarClipPlane, 50 < far < 5000 like ZyZ)
+    int   streamingMB  = 0;          // [Performance] StreamingMemory (MB, 0 = game default; CStreaming::ms_memoryAvailable at load)
+    bool  pauseInMenu  = false;      // [Menu] PauseGame while the menu is open
+    bool  buttonLock   = false;      // [Button] Lock: the floating button can not be dragged
+    bool  captureNow   = false;      // transient: menu > Capture Frame
     // ---- [Button] / [Menu] ----
     bool  showButton   = true;
     float buttonX = 0.38f, buttonY = 0.95f, buttonScale = 1.0f, buttonOpacity = 0.55f;
@@ -191,14 +234,14 @@ extern const char* const PS_TonemapNames[]; extern const int PS_TonemapCount;
 extern const char* const PS_TimeNames[];    extern const int PS_TimeCount;
 extern const char* const PS_SunSourceNames[]; extern const int PS_SunSourceCount;
 extern const char* const PS_ShadowMethodNames[]; extern const int PS_ShadowMethodCount;
-// [LUT] Folders -> the directory LUT_Load searches (base = files/ProperGFX)
+// [LUT] Folders -> the directory LUT_Load searches (base = files/TyFMCGFX)
 void PS_LutDir(const PSSettings& s, const char* base, char* out, int n);
 extern const char* const PS_DofModeNames[];   extern const int PS_DofModeCount;
 extern const char* const PS_AoModeNames[];    extern const int PS_AoModeCount;
 extern const char* const PS_QualityMenuNames[]; // Low / Medium / High / Ultra (slider order)
 int   PS_QualityToSlider(int q);                  // -1 = Custom
 int   PS_SliderToQuality(int i);
-bool  PS_PresetSave(const PSSettings& s, const char* dir, int slot);   // files/ProperGFX/presets/preset<slot>.ini
+bool  PS_PresetSave(const PSSettings& s, const char* dir, int slot);   // files/TyFMCGFX/presets/preset<slot>.ini
 bool  PS_PresetLoad(PSSettings& s, const char* dir, int slot);
 bool  PS_PresetDelete(const char* dir, int slot);
 bool  PS_PresetExists(const char* dir, int slot);

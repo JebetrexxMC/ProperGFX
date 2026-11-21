@@ -1,11 +1,11 @@
-// Proper GFX Mobile 1.5.0 - public API for other AML mods
+// TyFMCGFX 1.6.0 - public API for other AML mods
 //
 // Two ways to use it (both are the same functions):
-//   1) AML interface:   IProperGFX* pgfx = (IProperGFX*)GetInterface("ProperGFX");   (#include <mod/interface.h>)
-//   2) dlsym:           dlsym(dlopen("libProperGFX64.so", RTLD_NOLOAD), "ProperGFX_SetValue") ...
+//   1) AML interface:   IProperGFX* pgfx = (IProperGFX*)GetInterface("TyFMCGFX");    (#include <mod/interface.h>)
+//   2) dlsym:           dlsym(dlopen("libTyFMCGFX64.so", RTLD_NOLOAD), "ProperGFX_SetValue") ...
 //
 // All setters are thread safe: changes are queued and applied on the render thread at the start of the next frame.
-// Section / key names are exactly the ones in TYFMC.ProperGFX.ini (case-insensitive), e.g. ("Bloom", "Intensity", "0.6"),
+// Section / key names are exactly the ones in TyFMCGFX.ini (case-insensitive), e.g. ("Bloom", "Intensity", "0.6"),
 // ("VolumetricFog", "Density.Night", "0.02"), ("General", "Quality", "Ultra"). Changes made through the API are NOT
 // written to the ini unless you call Save().
 #pragma once

@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <time.h>
 
+static float g_shadowLightScale = 1.f;           // 1.6.0: moon shadows are weaker than the sun's
 namespace {
 
 const int   kMaxDraws = 6000;                 // per capture, scene target only (1.4.6: other targets no longer eat the budget)
@@ -346,7 +347,7 @@ bool UpdateSun()
     float len = sqrtf(Dot3(L, L));
     if (len < 0.5f) { G.fade = 0.f; G.stats.fade = 0.f; Note("no directional light (night / interior)"); return false; }
     Norm3(L);
-    if (!G.haveSun) { memcpy(G.sun, L, sizeof(L)); G.haveSun = true; }
+    if (!G.haveSun || Dot3(G.sun, L) < 0.f) { memcpy(G.sun, L, sizeof(L)); G.haveSun = true; }   // 1.6.0: sun <-> moon switch: no swing through the horizon
     else
     {
         float k = G.s.sunSmoothing;
@@ -445,12 +446,12 @@ bool DefBuild(GLuint& out, const char* vsRel, const char* fsRel)
     std::string vs, fs;
     if (!GLSL_Source(vsRel, vs) || !GLSL_Source(fsRel, fs)) { PS_Log("deferred shadows: %s / %s are not built into the mod", vsRel, fsRel); return false; }
     GLuint v = 0, f = 0;
-    if (!Compile(v, GL_VERTEX_SHADER, vs.c_str())) { GLSL_MarkFailed(vsRel, "did not compile - see propergfx_log.txt"); return false; }
-    if (!Compile(f, GL_FRAGMENT_SHADER, fs.c_str())) { glDeleteShader(v); GLSL_MarkFailed(fsRel, "did not compile - see propergfx_log.txt"); return false; }
+    if (!Compile(v, GL_VERTEX_SHADER, vs.c_str())) { GLSL_MarkFailed(vsRel, "did not compile - see tyfmcgfx_log.txt"); return false; }
+    if (!Compile(f, GL_FRAGMENT_SHADER, fs.c_str())) { glDeleteShader(v); GLSL_MarkFailed(fsRel, "did not compile - see tyfmcgfx_log.txt"); return false; }
     GLuint p = glCreateProgram(); glAttachShader(p, v); glAttachShader(p, f);
     glLinkProgram(p); glDeleteShader(v); glDeleteShader(f);
     GLint ok = 0; glGetProgramiv(p, GL_LINK_STATUS, &ok);
-    if (!ok) { char log[512] = ""; glGetProgramInfoLog(p, sizeof(log), nullptr, log); PS_Log("deferred shadows: %s + %s link failed: %s", vsRel, fsRel, log); glDeleteProgram(p); GLSL_MarkFailed(fsRel, "link failed - see propergfx_log.txt"); return false; }
+    if (!ok) { char log[512] = ""; glGetProgramInfoLog(p, sizeof(log), nullptr, log); PS_Log("deferred shadows: %s + %s link failed: %s", vsRel, fsRel, log); glDeleteProgram(p); GLSL_MarkFailed(fsRel, "link failed - see tyfmcgfx_log.txt"); return false; }
     out = p; return true;
 }
 
@@ -468,14 +469,14 @@ bool DefEnsurePrograms()
     if (D.caster.id && D.mask.id && D.apply) return true;
     if (!D.caster.id)
     {
-        if (!DefBuild(D.caster.id, "vertex/shadow_depth.glsl", "fragment/shadow_depth.glsl")) { D.failed = true; Note("shadow_depth.glsl failed - see propergfx_log.txt"); return false; }
+        if (!DefBuild(D.caster.id, "vertex/shadow_depth.glsl", "fragment/shadow_depth.glsl")) { D.failed = true; Note("shadow_depth.glsl failed - see tyfmcgfx_log.txt"); return false; }
         GLuint p = D.caster.id;
         D.caster.uLVP = glGetUniformLocation(p, "uLightVP"); D.caster.uObj = glGetUniformLocation(p, "uObj"); D.caster.uTex = glGetUniformLocation(p, "uTex");
         D.caster.uAlpha = glGetUniformLocation(p, "uAlpha"); D.caster.uUvScale = glGetUniformLocation(p, "uUvScale");
     }
     if (!D.mask.id)
     {
-        if (!DefBuild(D.mask.id, "vertex/shadow_screen.glsl", "fragment/shadow_mask.glsl")) { D.failed = true; Note("shadow_mask.glsl failed - see propergfx_log.txt"); return false; }
+        if (!DefBuild(D.mask.id, "vertex/shadow_screen.glsl", "fragment/shadow_mask.glsl")) { D.failed = true; Note("shadow_mask.glsl failed - see tyfmcgfx_log.txt"); return false; }
         MaskProg& m = D.mask; GLuint p = m.id;
         m.uDepth = glGetUniformLocation(p, "uDepth");
         for (int i = 0; i < kMaxCasc; ++i) { char n[8]; snprintf(n, sizeof(n), "uMap%d", i); m.uMap[i] = glGetUniformLocation(p, n); snprintf(n, sizeof(n), "uL%d", i); m.uL[i] = glGetUniformLocation(p, n); }
@@ -487,7 +488,7 @@ bool DefEnsurePrograms()
     }
     if (!D.apply)
     {
-        if (!DefBuild(D.apply, "vertex/shadow_screen.glsl", "fragment/shadow_apply.glsl")) { D.failed = true; Note("shadow_apply.glsl failed - see propergfx_log.txt"); return false; }
+        if (!DefBuild(D.apply, "vertex/shadow_screen.glsl", "fragment/shadow_apply.glsl")) { D.failed = true; Note("shadow_apply.glsl failed - see tyfmcgfx_log.txt"); return false; }
         D.applyMask = glGetUniformLocation(D.apply, "uMask");
     }
     if (!D.blur.id && !D.blurFailed)
@@ -678,7 +679,7 @@ void DefMaskAndApply(GLint sceneFbo, GLuint depthTex, int w, int h)
     const int mw = (w + scale - 1) / scale, mh = (h + scale - 1) / scale;
     if (!DefEnsureMask(mw, mh)) return;
     const float res = (float)D.mapRes;
-    const float strength = G.s.shadowStrength * G.fade * ((G.s.shadowTimecyc && G.tcValid) ? G.tcMul : 1.f);
+    const float strength = G.s.shadowStrength * G.fade * ((G.s.shadowTimecyc && G.tcValid) ? G.tcMul : 1.f) * g_shadowLightScale;
 
     glDisable(GL_BLEND); glDisable(GL_SCISSOR_TEST); glDisable(GL_STENCIL_TEST); glDisable(GL_CULL_FACE); glDisable(GL_DEPTH_TEST);
     glDisable(GL_DITHER); glDisable(GL_POLYGON_OFFSET_FILL); glDepthMask(GL_FALSE); glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
@@ -773,7 +774,7 @@ void Shadow_Configure(const PSSettings& s, int level)
     G.enabled = s.enabled && s.shadows && !G.failed && !G.noHighp;
     G.stats.enabled = G.enabled;
     if (!G.enabled && !G.failed && !G.noHighp)
-        Note(!s.enabled ? "off: Proper GFX master switch is off" : "off: DynamicShadows is unchecked (the Low preset turns it off - pick Medium or High)");
+        Note(!s.enabled ? "off: TyFMCGFX master switch is off" : "off: DynamicShadows is unchecked (the Low preset turns it off - pick Medium or High)");
     else if (G.enabled && !was) Note("starting (deferred)...");
     G.s.shadowMethod = 0;                                       // 1.4.6: always Deferred (like libZyZGFX64) - the 1.4.2 in-shader method is gone
     G.stats.deferred = true;
@@ -896,6 +897,7 @@ void Shadow_SetTimecyc(float mul, int raw, int rawMax, bool valid)
     G.stats.timecycValid = valid; G.stats.timecycMul = G.tcMul; G.stats.timecycRaw = raw; G.stats.timecycMax = rawMax;
 }
 
+void Shadow_SetLightScale(float k) { g_shadowLightScale = k < 0.f ? 0.f : (k > 1.f ? 1.f : k); }
 void Shadow_SetSunHint(const float v[3], bool valid)
 {
     G.hintValid = valid;

@@ -1,4 +1,4 @@
-// Proper GFX Mobile (v1.5.0, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
+// TyFMCGFX (v1.6.0, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
 // Every shader is a .glsl file of the source tree (shaders/{vertex,fragment}, SAShaderL-style layout and uniforms) compiled INTO the .so, see ps_glsl.h.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
@@ -10,6 +10,8 @@
 #include <math.h>
 #include <string.h>
 #include <chrono>
+#include <time.h>
+#include <stdio.h>
 #include "ps_settings.h"
 #include "ps_glstate.h"
 #include "ps_fx.h"
@@ -21,6 +23,7 @@
 #include "ps_lut.h"
 #include "ps_glsl.h"
 #include "ps_deferred.h"
+#include "ps_lights.h"
 #include "ps_api.h"
 #include "sautils/isautils.h"
 #include <dirent.h>
@@ -40,7 +43,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.5.0, ProperGFX)
+MYMOD(net.propergfx.mobile, TyFMCGFX, 1.6.0, TyFMC)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -76,6 +79,11 @@ static std::atomic<unsigned> g_sceneCalls{0};
 static unsigned g_sceneSeen = 0; static int g_noSceneFrames = 1000;
 static bool g_inGame = false, g_sceneHooked = false;
 static pthread_t g_renderThread; static bool g_haveRenderThread = false;
+// 1.6.0 (ZyZGfx 2.0 port): dynamic lights, beams, lightning, streaming memory, menu pause, frame capture
+static unsigned char* g_pLightning = nullptr;   // CWeather::LightningFlash
+static unsigned* g_pStreamMem = nullptr;         // CStreaming::ms_memoryAvailable (bytes)
+static bool g_menuPaused = false;                // we set CTimer::m_CodePause while the menu is open
+static float g_wetEff = 0.f, g_flash = 0.f;
 static short* g_pWeatherOld = nullptr; static short* g_pWeatherNew = nullptr; static float* g_pWeatherInterp = nullptr;
 
 static PSSettings g_cfg;
@@ -96,6 +104,34 @@ static bool Readable(const void* p, size_t n)
     unsigned char vec[8];
     for (uintptr_t pg = a; pg < e; pg += 4096) if (mincore((void*)pg, 4096, vec) != 0) return false;
     return true;
+}
+
+// 1.6.0 Capture Frame: the default framebuffer (3D world + HUD, without our menu) -> files/TyFMCGFX/captures/capture_<time>.bmp
+static void CaptureFrame(int w, int h)
+{
+    char dir[700]; snprintf(dir, sizeof(dir), "%s/captures", g_dir); mkdir(dir, 0777);
+    std::vector<unsigned char> px((size_t)w * h * 4);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    time_t t = time(nullptr); struct tm lt; localtime_r(&t, &lt);
+    char path[800]; snprintf(path, sizeof(path), "%s/capture_%04d%02d%02d_%02d%02d%02d.bmp", dir, lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min, lt.tm_sec);
+    FILE* f = fopen(path, "wb");
+    if (!f) { PS_FileLog("capture: can not write %s", path); return; }
+    const int row = w * 3, pad = (4 - row % 4) % 4; const unsigned size = 54 + (unsigned)(row + pad) * h;
+    unsigned char hd[54] = { 'B', 'M' };
+    auto P32 = [&](int o, unsigned v) { hd[o] = v & 255; hd[o + 1] = (v >> 8) & 255; hd[o + 2] = (v >> 16) & 255; hd[o + 3] = v >> 24; };
+    P32(2, size); P32(10, 54); P32(14, 40); P32(18, (unsigned)w); P32(22, (unsigned)h); hd[26] = 1; hd[28] = 24; P32(34, size - 54);
+    fwrite(hd, 1, 54, f);
+    std::vector<unsigned char> line(row + pad, 0);
+    for (int y = 0; y < h; ++y)                 // GL rows are bottom-up, like BMP
+    {
+        const unsigned char* s = &px[(size_t)y * w * 4];
+        for (int x = 0; x < w; ++x) { line[x * 3] = s[x * 4 + 2]; line[x * 3 + 1] = s[x * 4 + 1]; line[x * 3 + 2] = s[x * 4]; }
+        fwrite(line.data(), 1, line.size(), f);
+    }
+    fclose(f);
+    PS_FileLog("capture: %s (%dx%d)", path, w, h);
 }
 
 // Sun direction -> screen UV, using the camera matrix. Returns visibility 0..1.
@@ -158,7 +194,7 @@ static void OnFrame()
         // Post effects, the floating button / menu and the shadows only run in gameplay (1.4.6: they were also drawn over the main menu)
         const unsigned sc = g_sceneCalls.load(std::memory_order_relaxed);
         if (sc != g_sceneSeen) { g_sceneSeen = sc; g_noSceneFrames = 0; } else if (g_noSceneFrames < 1000) ++g_noSceneFrames;
-        const bool paused = (g_pUserPause && *g_pUserPause) || (g_pCodePause && *g_pCodePause);
+        const bool paused = (g_pUserPause && *g_pUserPause) || (g_pCodePause && *g_pCodePause && !g_menuPaused);
         g_inGame = (!g_sceneHooked || g_noSceneFrames < 8) && !paused;
     }
 
@@ -166,6 +202,26 @@ static void OnFrame()
     float nf = (g_pClockH && g_pClockM && *g_pClockH < 24 && *g_pClockM < 60) ? PS_NightFactor(*g_pClockH, *g_pClockM) : 0.f;
     PS_UpdateLive(g_cfg, nf);
     float wet = g_pWetRoads ? *g_pWetRoads : 0.f;
+    if (!isfinite(wet)) wet = 0.f;
+    {   // 1.6.0 [Weather] Drying: the roads lose their wetness over DryingTime seconds instead of at once
+        if (g_cfg.dryingOn && g_wetEff > wet) g_wetEff = fmaxf(wet, g_wetEff - dt / fmaxf(g_cfg.dryingTime, 1.f));
+        else g_wetEff = wet;
+        wet = g_wetEff;
+    }
+    {   // 1.6.0 [Menu] PauseGame: the game stands still while the menu is open
+        const bool want = g_cfg.pauseInMenu && g_inGame && UI_MenuOpen() && g_pCodePause;
+        if (want && !g_menuPaused) { if (!*g_pCodePause) { *g_pCodePause = true; g_menuPaused = true; } }
+        else if (!want && g_menuPaused) { if (g_pCodePause) *g_pCodePause = false; g_menuPaused = false; }
+    }
+    if (g_pStreamMem && g_cfg.streamingMB > 0)
+    {   // 1.6.0 [Performance] StreamingMemory (the game resets it on some loads: kept every frame)
+        const unsigned want = (unsigned)g_cfg.streamingMB * 1024u * 1024u;
+        if (*g_pStreamMem < want) *g_pStreamMem = want;
+    }
+    {   // lightning: the game's flag is on for single frames - hold + decay it
+        const bool on = g_pLightning && *g_pLightning;
+        g_flash = on ? 1.f : fmaxf(0.f, g_flash - dt * 4.f);
+    }
     World_SetEnabled(g_cfg.enabled);
     g_cfg.shadowMethod = 0;                 // 1.4.6: always Deferred (like libZyZGFX64)
     g_sw = w; g_sh = h;
@@ -198,12 +254,29 @@ static void OnFrame()
                 }
             }
         }
+        {   // 1.6.0 moon = opposite of the sun (the game moves both on the same arc), the lights of this frame
+            float l = sqrtf(df.sun[0] * df.sun[0] + df.sun[1] * df.sun[1] + df.sun[2] * df.sun[2]);
+            if (l > 0.1f) for (int i = 0; i < 3; ++i) df.moon[i] = -df.sun[i] / l;
+            df.lightning = g_flash;
+            float cam[3] = {0.f, 0.f, 0.f};
+            const char* cm = g_pCamera ? *(const char* const*)((const char*)g_pCamera + 0x18) : nullptr;   // TheCamera.m_matrix
+            if (cm && Readable(cm + 0x30, 12)) { const float* P = (const float*)(cm + 0x30); if (isfinite(P[0]) && isfinite(P[1]) && isfinite(P[2])) memcpy(cam, P, 12); }
+            const bool frozen = (g_pUserPause && *g_pUserPause) || (g_pCodePause && *g_pCodePause);
+            df.nLights = Lights_Snapshot(cam, frozen, df.lights, 32, df.beams, 8, &df.nBeams);
+        }
         Deferred_SetFrame(df);
     }
     Scene_SetScreenSize(w, h);
     {   // the game's own sun vector (points TOWARD the sun, world space, z up) - the same vector the sun disc / coronas use
         float sv[3] = { 0.f, 0.f, 1.f }; bool ok = false;
         if (g_pVectorToSun && g_pSunIndex) { int idx = *g_pSunIndex; if (idx >= 0 && idx < 16) { const float* p = g_pVectorToSun + idx * 3; sv[0] = p[0]; sv[1] = p[1]; sv[2] = p[2]; ok = isfinite(sv[0]) && isfinite(sv[1]) && isfinite(sv[2]); } }
+        float sl = 1.f;
+        if (ok && sv[2] < -0.05f && g_cfg.moonShadows && g_cfg.moonLightOn)
+        {   // 1.6.0 [Moon] Shadows: at night the dynamic shadows are cast by the moon (opposite of the sun), weaker
+            sv[0] = -sv[0]; sv[1] = -sv[1]; sv[2] = -sv[2];
+            sl = g_cfg.moonShadowStrength * fminf(1.f, nf * 1.5f);
+        }
+        Shadow_SetLightScale(sl);
         Shadow_SetSunHint(sv, ok);
         float uw0 = g_pUnderWater ? *g_pUnderWater : 0.f; uw0 = uw0 < 0.f ? 0.f : (uw0 > 1.f ? 1.f : uw0);
         Shadow_SetFrameGlobals(uw0, sv);
@@ -255,6 +328,7 @@ static void OnFrame()
     st.sunTracked = g_sunTracked; st.lutLoaded = FX_LutLoaded(); st.fx = &FX_Stats();
     st.scene = &Scene_Stats();
     st.shadow = &Shadow_Stats(); st.shadowTex = Shadow_Texture(); st.shadowReceivers = World_ShadowReceiverCount(); st.build = &World_BuildStats();
+    if (g_cfg.captureNow) { g_cfg.captureNow = false; CaptureFrame(w, h); }   // 1.6.0 Capture Frame (before the menu is drawn)
     UI_Render(g_cfg, w, h, dt, st, g_inGame);   // hidden (and touch-transparent) outside gameplay
     Shadow_EndFrame();                  // ends this frame's capture (the cascades / mask already ran at the after-scene event)
     gs.Restore();
@@ -337,7 +411,7 @@ DECL_HOOKi(RQShader_BuildSource, unsigned flags, const char** pxl, const char** 
     return r;
 }
 
-// 1.5.0: Proper GFX's post effects on the scene target, inside the frame (render thread, GL state saved by the caller)
+// 1.5.0: TyFMCGFX's post effects on the scene target, inside the frame (render thread, GL state saved by the caller)
 static void RunFrameFx()
 {
     GLint fb = 0; glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fb);
@@ -445,8 +519,64 @@ DECL_HOOKv(AND_TouchEvent, int type, int finger, int x, int y)
 
 DECL_HOOKp(RwCameraSetFarClipPlane, void* cam, float farPlane)
 {
+    // 1.6.0 [Performance] DrawDistance (ZyZ TuFarClip): only the main camera's far clip (50 .. 5000 m), never reflections / UI cameras
+    if (farPlane > 50.f && farPlane < 5000.f && g_cfg.enabled && fabsf(g_cfg.drawDistance - 1.f) > 0.01f) farPlane *= g_cfg.drawDistance;
     if (farPlane > 50.f && farPlane < 100000.f) g_farClip = farPlane;   // FarClipDist (the main camera; tiny clips are reflections / UI)
     return RwCameraSetFarClipPlane(cam, farPlane);
+}
+
+
+// ---------------------------------------------------------------- 1.6.0 light sources (game thread) - port of ZyZGfx 2.0 dynlights / beams
+struct PSVec3 { float x, y, z; };
+static void AddPool(const PSVec3* pos, float fx, float fy, float sx, float sy, unsigned char r, unsigned char g, unsigned char b, int kind, float lift)
+{
+    if (!pos) return;
+    const float R = fmaxf(sqrtf(fx * fx + fy * fy), sqrtf(sx * sx + sy * sy)) * 1.6f;
+    if (!(R > 0.3f) || R > 60.f) return;
+    float mx = (float)(r > g ? (r > b ? r : b) : (g > b ? g : b));
+    if (mx < 4.f) return;
+    float p[3] = { pos->x, pos->y, pos->z + fmaxf(lift, R * 0.4f) };
+    Lights_Add(p, R, r / mx, g / mx, b / mx, fminf(fmaxf(mx / 128.f, 0.2f), 1.5f), kind);
+}
+DECL_HOOKb(StoreStaticShadow, unsigned long long id, unsigned char type, void* tex, PSVec3* pos, float fx, float fy, float sx, float sy, short intensity,
+           unsigned char r, unsigned char g, unsigned char b, float zDist, float scale, float drawDist, bool temp, float upDist)
+{
+    if (type == 2 && g_cfg.enabled && g_cfg.deferredOn && g_cfg.dynLightsOn)   // 2 = additive light pool (street lamps, neon, building lights)
+    {
+        AddPool(pos, fx, fy, sx, sy, r, g, b, 0, 1.5f);
+        if (g_cfg.replaceGameShadows) return false;
+    }
+    return StoreStaticShadow(id, type, tex, pos, fx, fy, sx, sy, intensity, r, g, b, zDist, scale, drawDist, temp, upDist);
+}
+DECL_HOOKv(StoreCarLightShadow, void* veh, int id, void* tex, PSVec3* pos, float fx, float fy, float sx, float sy, unsigned char r, unsigned char g, unsigned char b, float maxAngle)
+{
+    if (g_cfg.enabled && g_cfg.deferredOn && g_cfg.dynLightsOn) AddPool(pos, fx, fy, sx, sy, r, g, b, 1, 0.8f);
+    StoreCarLightShadow(veh, id, tex, pos, fx, fy, sx, sy, r, g, b, maxAngle);
+}
+DECL_HOOKv(CPointLights_AddLight, unsigned char type, PSVec3 pos, PSVec3 dir, float radius, float r, float g, float b, unsigned char fog, bool extraShadows, void* ent)
+{
+    if (type <= 1 && g_cfg.enabled && g_cfg.deferredOn && g_cfg.dynLightsOn && radius > 0.3f && radius < 60.f)   // 0 = point light, 1 = point light, no fog
+    {
+        float mx = fmaxf(r, fmaxf(g, b));
+        if (mx > 0.02f) { float p[3] = { pos.x, pos.y, pos.z }; Lights_Add(p, radius, r / mx, g / mx, b / mx, fminf(mx * 1.2f, 1.5f), 2); }
+    }
+    CPointLights_AddLight(type, pos, dir, radius, r, g, b, fog, extraShadows, ent);
+}
+DECL_HOOKv(DoHeadLightBeam, void* veh, int type, float* mat, unsigned char right)
+{   // CMatrix: right @0, forward @0x10, up @0x20, pos @0x30
+    if (mat && g_cfg.enabled && g_cfg.deferredOn && g_cfg.beamsOn)
+    {
+        const float* R = mat; const float* F = mat + 4; const float* U = mat + 8; const float* P = mat + 12;
+        if (isfinite(P[0]) && isfinite(F[0]) && fabsf(F[0] * F[0] + F[1] * F[1] + F[2] * F[2] - 1.f) < 0.2f)
+        {
+            const float side = right ? 0.7f : -0.7f;
+            float p[3], d[3];
+            for (int i = 0; i < 3; ++i) { p[i] = P[i] + F[i] * 2.2f + R[i] * side + U[i] * 0.05f; d[i] = F[i] - U[i] * 0.08f; }
+            Lights_AddBeam(p, d, 1.f);
+            if (g_cfg.replaceGameBeams) return;
+        }
+    }
+    DoHeadLightBeam(veh, type, mat, right);
 }
 
 // EntityModel: same as SAShaderL - remember the model of the entity being rendered (CEntity::m_nModelIndex, int16 at 0x32 on arm64)
@@ -605,39 +735,48 @@ DECL_HOOKp(RwCameraSetNearClipPlane, void* cam, float nearPlane)
     return RwCameraSetNearClipPlane(cam, nearPlane);
 }
 
-// ---------------------------------------------------------------- 1.4: folder files/ProperShader -> files/ProperGFX, settings.ini -> TYFMC.ProperGFX.ini
+// ---------------------------------------------------------------- 1.6: rename to TyFMCGFX
+// files/ProperShader (<=1.3) and files/ProperGFX (1.4-1.5) -> files/TyFMCGFX, settings.ini / TYFMC.ProperGFX.ini -> TyFMCGFX.ini
 static bool Exists(const char* p) { return access(p, F_OK) == 0; }
+static bool IsOldIni(const char* n) { return !strcasecmp(n, "settings.ini") || !strcasecmp(n, "TYFMC.ProperGFX.ini"); }
+static bool IsOldJunk(const char* n) { return !strncasecmp(n, "shadow_guard", 12) || !strcasecmp(n, "propergfx_log.txt"); }
+static void MigrateOneFolder(const char* files, const char* oldName, const char* newDir)
+{
+    char oldDir[600]; snprintf(oldDir, sizeof(oldDir), "%s/%s", files, oldName);
+    if (!Exists(oldDir)) return;
+    if (!Exists(newDir) && rename(oldDir, newDir) == 0) { logger->Info("moved files/%s to files/" PS_DIR_NAME, oldName); return; }
+    // both exist: move what is ours file by file (never overwrite), drop old guard / log files, remove the old folder when empty
+    mkdir(newDir, 0777);
+    if (DIR* d = opendir(oldDir))
+    {
+        while (dirent* e = readdir(d))
+        {
+            const char* n = e->d_name;
+            if (n[0] == '.') continue;
+            char from[900], to[900]; snprintf(from, sizeof(from), "%s/%s", oldDir, n);
+            if (IsOldJunk(n)) { remove(from); continue; }
+            snprintf(to, sizeof(to), "%s/%s", newDir, IsOldIni(n) ? PS_INI_NAME : n);
+            if (!Exists(to)) rename(from, to);
+        }
+        closedir(d);
+    }
+    rmdir(oldDir);
+}
 static void MigrateOldFolder(const char* files, const char* newDir)
 {
-    char oldDir[600]; snprintf(oldDir, sizeof(oldDir), "%s/ProperShader", files);
-    char oldIni[700], newIni[700];
-    if (Exists(oldDir))
+    MigrateOneFolder(files, "ProperGFX", newDir);
+    MigrateOneFolder(files, "ProperShader", newDir);
+    const char* oldInis[] = { "TYFMC.ProperGFX.ini", "settings.ini" };
+    char newIni[700]; snprintf(newIni, sizeof(newIni), "%s/" PS_INI_NAME, newDir);
+    for (const char* oi : oldInis)
     {
-        if (!Exists(newDir) && rename(oldDir, newDir) == 0) logger->Info("moved files/ProperShader to files/" PS_DIR_NAME);
-        else
-        {   // both exist: move what is ours file by file, drop the old guard / log files, remove the old folder when it is empty
-            mkdir(newDir, 0777);
-            if (DIR* d = opendir(oldDir))
-            {
-                while (dirent* e = readdir(d))
-                {
-                    if (e->d_name[0] == '.') continue;
-                    char from[900], to[900]; snprintf(from, sizeof(from), "%s/%s", oldDir, e->d_name);
-                    const char* n = e->d_name;
-                    if (!strncasecmp(n, "shadow_guard", 12) || !strcasecmp(n, "propergfx_log.txt")) { remove(from); continue; }
-                    snprintf(to, sizeof(to), "%s/%s", newDir, !strcasecmp(n, "settings.ini") ? PS_INI_NAME : n);
-                    if (!Exists(to)) rename(from, to);
-                }
-                closedir(d);
-            }
-            rmdir(oldDir);
-        }
+        char oldIni[700]; snprintf(oldIni, sizeof(oldIni), "%s/%s", newDir, oi);
+        if (Exists(oldIni) && !Exists(newIni) && rename(oldIni, newIni) == 0) logger->Info("%s renamed to " PS_INI_NAME, oi);
+        char junk[700]; snprintf(junk, sizeof(junk), "%s/propergfx_log.txt", newDir); remove(junk);
     }
-    snprintf(oldIni, sizeof(oldIni), "%s/settings.ini", newDir); snprintf(newIni, sizeof(newIni), "%s/" PS_INI_NAME, newDir);
-    if (Exists(oldIni) && !Exists(newIni)) { if (rename(oldIni, newIni) == 0) logger->Info("settings.ini renamed to " PS_INI_NAME); }
 }
 
-// ---------------------------------------------------------------- SAUtils (optional): "Proper GFX" entries in the game's Settings > Mods tab
+// ---------------------------------------------------------------- SAUtils (optional): "TyFMCGFX" entries in the game's Settings > Mods tab
 // Useful when the floating button is hidden or fully transparent.
 static ISAUtils* sautils = nullptr;
 static int g_sauButtonItem = -1;
@@ -648,15 +787,15 @@ static void SetupSAUtils()
     sautils = (ISAUtils*)GetInterface("SAUtils");
     if (!sautils) return;
     static const char* kOnOff[] = { "Off", "On", nullptr };
-    sautils->AddButton(SetType_Mods, "Proper GFX - open menu", OnSAUOpenMenu);
-    g_sauButtonItem = sautils->AddClickableItem(SetType_Mods, "Proper GFX - floating button", g_cfg.showButton ? 1 : 0, 0, 1, kOnOff, OnSAUButtonChanged);
-    logger->Info("SAUtils found: Proper GFX entries added to Settings > Mods");
+    sautils->AddButton(SetType_Mods, "TyFMCGFX - open menu", OnSAUOpenMenu);
+    g_sauButtonItem = sautils->AddClickableItem(SetType_Mods, "TyFMCGFX - floating button", g_cfg.showButton ? 1 : 0, 0, 1, kOnOff, OnSAUButtonChanged);
+    logger->Info("SAUtils found: TyFMCGFX entries added to Settings > Mods");
 }
 
 // ---------------------------------------------------------------- entry
 extern "C" __attribute__((visibility("default"))) void OnModLoad()
 {
-    logger->SetTag("ProperGFX");
+    logger->SetTag("TyFMCGFX");
     void* hGame = aml->GetLibHandle("libGTASA.so");
     if (!hGame) { logger->Error("libGTASA.so not found"); return; }
     if (aml->HasMod("net.propershader.mobile")) { logger->Error("Proper Shader Mobile 1.2 (libProperShader32/64.so) is also installed - delete it, both cannot run together"); return; }
@@ -666,16 +805,16 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     snprintf(files, sizeof(files), "%s", base && base[0] ? base : "/sdcard/Android/data/com.rockstargames.gtasa/files");
     { size_t l = strlen(files); if (l > 1 && files[l - 1] == '/') files[l - 1] = 0; }
     snprintf(g_dir, sizeof(g_dir), "%s/" PS_DIR_NAME, files);
-    MigrateOldFolder(files, g_dir);         // 1.3 and older: files/ProperShader/settings.ini -> files/ProperGFX/TYFMC.ProperGFX.ini
+    MigrateOldFolder(files, g_dir);         // 1.3 and older: files/ProperShader/settings.ini -> files/TyFMCGFX/TyFMCGFX.ini
     mkdir(g_dir, 0777);
-    {   // kill-switch: create ProperGFX/disable.txt to make the mod do nothing at all
+    {   // kill-switch: create TyFMCGFX/disable.txt to make the mod do nothing at all
         char kill[640]; snprintf(kill, sizeof(kill), "%s/disable.txt", g_dir);
-        if (access(kill, F_OK) == 0) { logger->Info("disable.txt found - Proper GFX Mobile stays inactive"); return; }
+        if (access(kill, F_OK) == 0) { logger->Info("disable.txt found - TyFMCGFX stays inactive"); return; }
     }
     snprintf(g_iniPath, sizeof(g_iniPath), "%s/" PS_INI_NAME, g_dir);
     if (!PS_LoadSettings(g_cfg, g_iniPath)) PS_SaveSettings(g_cfg, g_iniPath);
     UI_SetIniPath(g_iniPath);
-    // 64-bit: every shader is a .glsl built into libProperGFX64.so (nothing is read from files/); also removes the shaders folder 1.4.0 wrote
+    // 64-bit: every shader is a .glsl built into libTyFMCGFX64.so (nothing is read from files/); also removes the shaders folder 1.4.0 wrote
     GLSL_Init(g_dir);
     World_LoadSnippets();
     World_SetEnabled(g_cfg.enabled && g_cfg.worldPatch);
@@ -694,9 +833,9 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
             if (access(old132, F_OK) == 0) { remove(old132); logger->Info("removed the old shadow_guard_v132.txt (left by the 1.4.3 start-up crash)"); }
         }
         snprintf(g_guardPath, sizeof(g_guardPath), "%s/shadow_guard_v145.txt", g_dir);
-        snprintf(PS_LogFilePath(), 640, "%s/propergfx_log.txt", g_dir);
+        snprintf(PS_LogFilePath(), 640, "%s/tyfmcgfx_log.txt", g_dir);
         { FILE* lf = fopen(PS_LogFilePath(), "rb"); if (lf) { fseek(lf, 0, SEEK_END); long sz = ftell(lf); fclose(lf); if (sz > 96 * 1024) remove(PS_LogFilePath()); } }
-        PS_FileLog("---- launch: Proper GFX Mobile " PS_VERSION " (%d-bit) ----", PS_BITS);
+        PS_FileLog("---- launch: TyFMCGFX " PS_VERSION " (%d-bit) ----", PS_BITS);
         if (g_cfg.shadows && g_cfg.shadowGuard && access(g_guardPath, F_OK) == 0) { g_guardTripped = true; logger->Info("shadow_guard_v145.txt found: shadows are in SAFE MODE (previous launch did not finish). Menu > DynamicShadows > Retry shadows."); PS_FileLog("shadows: SAFE MODE (shadow_guard_v145.txt from the previous launch)"); }
         if (g_guardTripped) Shadow_SetGuardFailed(true);
         // 1.4.6: always Deferred - the game's shaders never get the 1.4.2 shadow receivers (like libZyZGFX64)
@@ -723,6 +862,19 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     SET_TO(g_pCodePause,   aml->GetSym(hGame, "_ZN6CTimer11m_CodePauseE"));
     SET_TO(g_pRain,        aml->GetSym(hGame, "_ZN8CWeather4RainE"));
     SET_TO(g_findPlayerVehicle, aml->GetSym(hGame, "_Z17FindPlayerVehicleib"));
+    SET_TO(g_pLightning,   aml->GetSym(hGame, "_ZN8CWeather14LightningFlashE"));
+    SET_TO(g_pStreamMem,   aml->GetSym(hGame, "_ZN10CStreaming18ms_memoryAvailableE"));
+    if (g_pStreamMem && g_cfg.streamingMB > 0) *g_pStreamMem = (unsigned)g_cfg.streamingMB * 1024u * 1024u;
+    // 1.6.0 light sources (ZyZGfx 2.0: HookOf_DlStoreStatic / HookOf_DlCarLightShadow / point lights / HookOf_BmHeadLightBeam)
+    if (aml->GetSym(hGame, "_ZN8CShadows17StoreStaticShadowEyhP9RwTextureP7CVectorffffshhhfffbf")) HOOKSYM(StoreStaticShadow, hGame, "_ZN8CShadows17StoreStaticShadowEyhP9RwTextureP7CVectorffffshhhfffbf");
+    if (aml->GetSym(hGame, "_ZN8CShadows19StoreCarLightShadowEP8CVehicleiP9RwTextureP7CVectorffffhhhf")) HOOKSYM(StoreCarLightShadow, hGame, "_ZN8CShadows19StoreCarLightShadowEP8CVehicleiP9RwTextureP7CVectorffffhhhf");
+    if (aml->GetSym(hGame, "_ZN12CPointLights8AddLightEh7CVectorS0_ffffhbP7CEntity")) HOOKSYM(CPointLights_AddLight, hGame, "_ZN12CPointLights8AddLightEh7CVectorS0_ffffhbP7CEntity");
+    if (aml->GetSym(hGame, "_ZN8CVehicle15DoHeadLightBeamEiR7CMatrixh")) HOOKSYM(DoHeadLightBeam, hGame, "_ZN8CVehicle15DoHeadLightBeamEiR7CMatrixh");
+    PS_FileLog("lights: static %s, car %s, point %s, beams %s, lightning %s, streaming %s",
+               aml->GetSym(hGame, "_ZN8CShadows17StoreStaticShadowEyhP9RwTextureP7CVectorffffshhhfffbf") ? "ok" : "MISSING",
+               aml->GetSym(hGame, "_ZN8CShadows19StoreCarLightShadowEP8CVehicleiP9RwTextureP7CVectorffffhhhf") ? "ok" : "MISSING",
+               aml->GetSym(hGame, "_ZN12CPointLights8AddLightEh7CVectorS0_ffffhbP7CEntity") ? "ok" : "MISSING",
+               aml->GetSym(hGame, "_ZN8CVehicle15DoHeadLightBeamEiR7CMatrixh") ? "ok" : "MISSING", g_pLightning ? "ok" : "MISSING", g_pStreamMem ? "ok" : "MISSING");
     Shadow_SetGameCamera((const void*)aml->GetSym(hGame, "TheCamera"));
     Shadow_SetAlphaTestState((const int*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE7curFunc"),
                              (const float*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE6curVal"));
@@ -738,7 +890,8 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     if (aml->GetSym(hGame, "_ZN12CPostEffects12MobileRenderEv")) { HOOKSYM(CPostEffects_MobileRender, hGame, "_ZN12CPostEffects12MobileRenderEv"); g_postHooked = true; }
     PS_FileLog("post effects: %s", g_postHooked ? "in-frame before CPostEffects::MobileRender (menus / HUD untouched)" : "in-frame after RenderScene (CPostEffects::MobileRender not found)");
     PSApi_Init(&g_cfg, g_dir, g_iniPath);
-    RegisterInterface("ProperGFX", PSApi_Get());
+    RegisterInterface("TyFMCGFX", PSApi_Get());
+    RegisterInterface("ProperGFX", PSApi_Get());   // 1.5 name, kept for mods that already use it
     static void* s_hGame; s_hGame = hGame;
     if (aml->GetSym(hGame, "_Z11RenderSceneb")) { HOOKSYM(RenderScene, hGame, "_Z11RenderSceneb"); }   // always: also the gameplay detection
     else PS_FileLog("RenderScene not found - effects / menu button are shown everywhere (no gameplay detection)");
@@ -760,5 +913,5 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
         HOOKSYM(RQ_Command_rqDeleteShader, hGame, "_Z25RQ_Command_rqDeleteShaderRPc");
     }
     SetupSAUtils();
-    logger->Info("Proper GFX Mobile " PS_VERSION " loaded (%d-bit). Config: %s", PS_BITS, g_iniPath);
+    logger->Info("TyFMCGFX " PS_VERSION " loaded (%d-bit). Config: %s", PS_BITS, g_iniPath);
 }

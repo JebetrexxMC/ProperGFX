@@ -1,4 +1,4 @@
-// Proper GFX Mobile - dynamic sun shadows.
+// TyFMCGFX - dynamic sun shadows.
 // Opaque world draws of a frame are captured (world matrix + buffers), re-rendered depth-only from the sun direction into a shadow map
 // and sampled by the game's own object shaders (patched in ps_world.cpp). The sun direction is the game's own DirLightDirection, so it follows
 // the time of day (the game clock, and so anything that sets it); strength follows timecyc.dat's Shdw column.

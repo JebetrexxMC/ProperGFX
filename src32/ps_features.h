@@ -56,6 +56,6 @@ static const PSFeature kFeatures[] = {
  {"Subsurface scattering",                           2, "Needs per-material pass."},
  {"Improve wind / vegetation shader",                2, "See wind."},
  {"Terrain splat maps shader",                       2, "Needs new terrain data."},
- {"Floating draggable settings button + menu",       0, "Drag anywhere; tap to open 'Proper GFX Settings'."},
+ {"Floating draggable settings button + menu",       0, "Drag anywhere; tap to open 'TyFMCGFX Settings'."},
 };
 static const int kFeatureCount = (int)(sizeof(kFeatures) / sizeof(kFeatures[0]));

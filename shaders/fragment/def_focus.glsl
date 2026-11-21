@@ -1,5 +1,5 @@
 #version 300 es
-// Proper GFX 1.5.0 [DepthOfField] Mode = Adaptive: auto focus. 1x1 target: distance at the screen centre (9 taps, the nearest wins a
+// TyFMCGFX 1.5.0 [DepthOfField] Mode = Adaptive: auto focus. 1x1 target: distance at the screen centre (9 taps, the nearest wins a
 // bit more), adapted over time like a camera's focus motor. Packed into RG8 (log-encoded, 16 bit) - GLES 3.0 cannot render to float.
 #pragma include "def_common.glsl"
 uniform mediump sampler2D uPrev;    // unit 1: previous focus (1x1)

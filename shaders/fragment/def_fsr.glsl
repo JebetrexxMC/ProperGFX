@@ -1,5 +1,5 @@
 #version 300 es
-// Proper GFX 1.5.0 [FSR] AMD FidelityFX Super Resolution 1 - RCAS (robust contrast-adaptive sharpening), the second half of FSR 1,
+// TyFMCGFX 1.5.0 [FSR] AMD FidelityFX Super Resolution 1 - RCAS (robust contrast-adaptive sharpening), the second half of FSR 1,
 // with its noise-aware lobe limit. GTA SA's internal resolution is set by the game's own Resolution option (lower it and FSR restores
 // the crispness); the EASU upscale itself needs the game to render into a smaller target, which the mobile renderer does not expose.
 precision mediump float;

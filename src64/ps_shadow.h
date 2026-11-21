@@ -1,4 +1,4 @@
-// Proper GFX Mobile - dynamic sun shadows.
+// TyFMCGFX - dynamic sun shadows.
 // Opaque world draws of a frame are captured (world matrix + buffers), re-rendered depth-only from the sun direction into a shadow map
 // and sampled by the game's own object shaders (patched in ps_world.cpp). The sun direction is the game's own DirLightDirection, so it follows
 // the time of day (the game clock, and so anything that sets it); strength follows timecyc.dat's Shdw column.
@@ -29,6 +29,7 @@ struct PSShadowStats
 
 void   Shadow_Configure(const PSSettings& s, int perfLevel);   // once per frame (render thread)
 void   Shadow_SetTimecyc(float mul, int raw, int rawMax, bool valid);   // strength multiplier derived from CTimeCycle::m_nShadowStrength (timecyc.dat)
+void   Shadow_SetLightScale(float k);                         // 1.6.0: 0..1 multiplier of the shadow strength (moon shadows)
 void   Shadow_SetSunHint(const float v[3], bool valid);        // CTimeCycle::m_VectorToSun[current] (points TOWARD the sun); once per frame before Shadow_EndFrame
 bool   Shadow_WantCapture();                                   // true while this frame's draws are being recorded
 void   Shadow_RecordDraw(int mode, int count, uintptr_t offset);   // call right AFTER the game issued the draw

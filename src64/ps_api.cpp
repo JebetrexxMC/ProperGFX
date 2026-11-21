@@ -1,4 +1,4 @@
-// Proper GFX Mobile 1.5.0 - public API (see propergfx_api.h)
+// TyFMCGFX 1.6.0 - public API (see propergfx_api.h)
 #include "ps_api.h"
 #include "ps_ui.h"
 #include <mutex>

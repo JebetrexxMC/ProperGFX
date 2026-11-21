@@ -1,10 +1,13 @@
 #version 300 es
-// Proper GFX 1.5.0 deferred COMPOSITE - one full-screen pass over the game's scene target right after RenderScene (3D world only:
+// TyFMCGFX 1.6.0 deferred COMPOSITE - one full-screen pass over the game's scene target right after RenderScene (3D world only:
 // the HUD, radar, menus and the pause menu are drawn later and are never touched). Per pixel, from the scene depth:
 //   [AmbientOcclusion] AO + SSGI bounce   [Skylight] sky occlusion of the sky ambient   [AmbientLighting] tricoloured ambient
 //   [ContactShadows] short screen-space rays toward the sun     [SSR] screen-space reflections (wet roads, puddles, flat shiny floors)
 //   [WorldRain] puddles + animated rain ripples while CWeather::WetRoads > 0     [WaterCaustics] on the sea floor and under water
 //   sky pixels: [PBRSky] Rayleigh / Mie sky blend, [VolumetricClouds], [Aurora]     then [VolumetricFog] and [RainFall] streaks
+//   1.6.0 (ZyZGfx 2.0 features): [DynamicLights] lamps / neon / car lights shade the world (+ screen-space shadows, fog glow),
+//   [LensGlare], [WetLightStreaks], [Moon] light / glitter, [NightLook], [NightSky] city glow / stars / Milky Way / shooting stars,
+//   AO multi-bounce, lightning flashes
 #pragma include "def_common.glsl"
 uniform mediump sampler2D uScene;   // unit 1: scene colour copy
 uniform mediump sampler2D uAO;      // unit 2: AO (a) + GI (rgb), blurred
@@ -18,6 +21,14 @@ uniform highp vec4 uW;              // x wetness (roads), y puddles, z ripples, 
 uniform highp vec4 uS;              // x PBR sky blend, y cloud coverage, z cloud density, w aurora strength
 uniform highp vec4 uS2;             // x cloud speed, y night 0..1, z rain fall streaks, w underwater 0..1
 uniform highp vec4 uOn;             // x volumetric fog on, y SSR steps, z AO buffer valid, w rain amount (CWeather::Rain)
+uniform highp vec4 uLP[32];         // dynamic lights: xyz position (world - camera), w radius (m)
+uniform highp vec4 uLC[32];         // rgb colour * intensity, w kind (0 lamp, 1 car, 2 point)
+uniform highp vec4 uL0;             // x light count, y strength, z lights with shadows, w debug
+uniform highp vec4 uL1;             // x glare, y wet streaks, z fog glow, w lightning flash
+uniform highp vec4 uMoon;           // xyz direction toward the moon, w moon light (0 = off)
+uniform highp vec4 uMoon2;          // x glitter, y lamp glow, z neon glow, w AO multi-bounce
+uniform highp vec4 uNL;             // x contrast, y exposure (EV), z colour shift, w night look amount (0 = off)
+uniform highp vec4 uSky2;           // x city glow, y stars, z Milky Way, w shooting stars (all * night)
 out vec4 oColor;
 
 vec3 Ambient(vec3 n){ return n.z >= 0.0 ? mix(uAmbH.rgb, uAmbS.rgb, n.z) : mix(uAmbH.rgb, uAmbG.rgb, -n.z); }
@@ -142,6 +153,61 @@ vec3 TraceSSR(vec3 C, vec3 R, float dist, out float hit){
   return vec3(0.0);
 }
 
+
+// ---------------------------------------------------------------- 1.6.0 night lighting
+vec3 Albedo(vec3 c){ return mix(vec3(0.35), c / (Luma(c) + 0.05) * 0.35, 0.6); }   // albedo proxy of a forward-lit pixel (ZyZ dynlights)
+float LightShadow(vec3 P0, vec3 L, float dl, float dist){
+  float j = IGN(gl_FragCoord.xy + 17.0), len = min(dl - 0.3, 6.0);
+  if (len <= 0.1) return 1.0;
+  for (int i = 0; i < 6; ++i) {
+    float t = (float(i) + j) / 6.0 * len;
+    vec3 s = ToScreen(P0 + L * t);
+    if (s.x < 0.0 || s.y < 0.0 || s.x > 1.0 || s.y > 1.0 || s.z >= 1.0) break;
+    float dz = LinDepth(s.z) - LinDepth(texture(uDepth, s.xy).r);
+    if (dz > 0.04 + dist * 0.001 && dz < 1.5) return 0.15 + 0.85 * float(i) / 6.0;
+  }
+  return 1.0;
+}
+// single-scattering of a point light along the view ray 0..tmax (closed form of the 1/r^2 integral)
+float InScatter(vec3 Lp, vec3 V, float tmax){
+  float t0 = dot(Lp, V); float h = max(length(Lp - V * t0), 0.15);
+  return (atan((tmax - t0) / h) - atan(-t0 / h)) / h;
+}
+vec3 MultiBounce(float v, vec3 alb){
+  vec3 a = 2.0404 * alb - 0.3324, b = -4.7951 * alb + 0.6417, c = 2.7552 * alb + 0.6903;
+  return max(vec3(v), ((v * a + b) * v + c) * v);
+}
+vec3 NightSky(vec3 v, float dark){
+  vec3 c = vec3(0.0);
+  float vz = max(v.z, 0.0);
+  c += vec3(1.0, 0.52, 0.22) * uSky2.x * exp(-vz * 7.0) * 0.10;                  // city light on the haze near the horizon
+  if (vz > 0.02 && dark > 0.0) {
+    vec2 q = vec2(atan(v.y, v.x) * 95.0, asin(clamp(v.z, -1.0, 1.0)) * 95.0);
+    vec2 i = floor(q), f = fract(q) - 0.5;
+    float h = Hash12(i);
+    float tw = 0.65 + 0.35 * sin(uCam.w * (2.0 + h * 5.0) + h * 40.0);
+    float st = step(0.985, h) * smoothstep(0.32, 0.0, length(f - (vec2(Hash12(i + 2.3), Hash12(i + 6.1)) - 0.5) * 0.4)) * tw;
+    c += vec3(0.85, 0.9, 1.0) * st * uSky2.y * smoothstep(0.02, 0.2, vz) * 0.9;
+    vec3 nb = normalize(vec3(0.35, 0.55, 0.76));                                  // Milky Way band
+    float band = exp(-pow(dot(v, nb), 2.0) * 28.0) * (0.4 + Fbm(q * 0.04) * 1.2);
+    c += vec3(0.55, 0.6, 0.85) * band * uSky2.z * 0.045 * smoothstep(0.02, 0.3, vz);
+    float seed = floor(uCam.w / 5.0), ph = fract(uCam.w / 5.0);                   // one shooting star every ~5 s (some slots empty)
+    if (Hash12(vec2(seed, 1.7)) > 0.4 && ph < 0.25) {
+      float a = Hash12(vec2(seed, 3.1)) * 6.2831853, e = 0.35 + Hash12(vec2(seed, 5.3)) * 0.4;
+      vec3 d0 = normalize(vec3(cos(a) * cos(e), sin(a) * cos(e), sin(e)));
+      vec3 side = normalize(cross(d0, vec3(0.0, 0.0, 1.0)));
+      vec3 d1 = normalize(d0 + side * 0.25 - vec3(0.0, 0.0, 0.08));
+      float k = ph / 0.25;
+      vec3 head = normalize(mix(d0, d1, k)), tail = normalize(mix(d0, d1, max(k - 0.25, 0.0)));
+      vec3 seg = head - tail; float sl = max(dot(seg, seg), 1e-6);
+      float u = clamp(dot(v - tail, seg) / sl, 0.0, 1.0);
+      float dd = length(v - (tail + seg * u));
+      c += vec3(1.0, 0.95, 0.85) * smoothstep(0.0025, 0.0, dd) * u * (1.0 - k) * uSky2.w * 2.0;
+    }
+  }
+  return c * dark;
+}
+
 void main(){
   vec4 sc = texture(uScene, vUV);
   vec3 col = sc.rgb;
@@ -158,7 +224,8 @@ void main(){
     float vis = mix(1.0, ao.a, uAmbG.w);
     vec3 amb = Ambient(N);
     float sky = clamp(N.z * 0.5 + 0.5, 0.0, 1.0) * mix(1.0, ao.a * ao.a, uAmbH.w);
-    col *= vis;
+    vec3 alb = Albedo(col);
+    col *= uMoon2.w > 0.5 ? MultiBounce(vis, clamp(col * 1.6, 0.0, 1.0)) : vec3(vis);
     col += col * (amb - vec3(Luma(amb))) * uAmbS.w * 1.2;                   // tint by sky / horizon / ground
     col += col * amb * (sky - 0.5) * uAmbH.w * 0.5;                         // skylight: open surfaces get more sky light, covered ones less
     col += ao.rgb * uA.x * (0.35 + col);
@@ -206,12 +273,98 @@ void main(){
       float depthB = max(-W.z, 0.0);
       col += col * Caustic(W.xy, uCam.w) * uW.w * (0.3 + sunH) * exp(-depthB * 0.12) * 0.5;
     }
+    // --- [DynamicLights] every lamp / neon / car light the game reports (ZyZ window: (1 - (d/R)^4)^2 / d^2)
+    if (uL0.x > 0.5) {
+      vec3 acc = vec3(0.0), spec = vec3(0.0);
+      int n = int(uL0.x), ns = int(uL0.z);
+      vec3 P0 = C + N * (0.05 + dist * 0.002);
+      for (int i = 0; i < 32; ++i) {
+        if (i >= n) break;
+        vec3 Lp = uLP[i].xyz - C; float R = uLP[i].w;
+        float d2 = dot(Lp, Lp);
+        if (d2 >= R * R) continue;
+        float dl = sqrt(d2); vec3 L = Lp / max(dl, 1e-3);
+        float x = d2 / (R * R); float win = 1.0 - x * x; win *= win;
+        float att = win / max(d2 * 0.25, 0.35) * 1.2;
+        float ndl = clamp((dot(N, L) + 0.05) / 1.05, 0.0, 1.0);
+        if (ndl <= 0.0) continue;
+        float sh = (i < ns && dist < 60.0) ? LightShadow(P0, L, dl, dist) : 1.0;
+        vec3 li = uLC[i].rgb * att * ndl * sh;
+        acc += li;
+        vec3 H = normalize(L - V);
+        spec += li * pow(max(dot(Nr, H), 0.0), 48.0) * (0.15 + wet * 2.5 + puddle * 3.0);
+      }
+      col += (alb * acc + spec) * uL0.y;
+      if (uL0.w > 0.5) col = mix(col, vec3(1.0, 0.1, 0.8) * min(Luma(acc), 1.0), 0.35);
+    }
+    // --- [WetLightStreaks] long vertical reflections of the lights on wet / rainy roads
+    if (uL1.y > 0.0 && uL0.x > 0.5 && wet > 0.02) {
+      vec3 st = vec3(0.0);
+      for (int i = 0; i < 12; ++i) {
+        if (i >= int(uL0.x)) break;
+        vec3 Lp = uLP[i].xyz; if (Lp.z <= C.z + 0.3) continue;
+        vec3 Lm = vec3(Lp.xy, 2.0 * C.z - Lp.z);                                   // light mirrored in this pixel's ground plane
+        vec3 s = ToScreen(Lm); if (s.z >= 1.0) continue;
+        float dl = length(Lp - C);
+        float dx = (vUV.x - s.x) * uRes.x * uRes.w, dy = vUV.y - s.y;
+        float wd = 0.004 + 0.06 / (1.0 + dl * 0.15);
+        float g = exp(-dx * dx / (wd * wd)) * exp(-dy * dy * 6.0) / (1.0 + dl * dl * 0.004);
+        st += uLC[i].rgb * g;
+      }
+      col += st * wet * (0.4 + puddle) * uL1.y * 0.5;
+    }
+    // --- [Moon] light at night (directional, from the sun's opposite side of the sky)
+    if (uMoon.w > 0.0 && uMoon.z > 0.02) col += alb * vec3(0.55, 0.65, 0.95) * max(dot(N, uMoon.xyz), 0.0) * uMoon.w * 0.12;
   } else {
     // --- sky
     if (uS.x > 0.0) { vec3 ps = PbrSky(V); col = mix(col, ps, uS.x * smoothstep(-0.02, 0.06, V.z)); }
     if (uS.z > 0.0 && uS.y > 0.0) { vec4 cl = Clouds(V); col = col * cl.a + cl.rgb; }
     if (uS.w > 0.0 && uS2.y > 0.05) col += Aurora(V) * uS.w * uS2.y;
+    float dark = 1.0 - smoothstep(0.06, 0.35, Luma(sc.rgb));                    // only on a dark sky (never over the moon / bright clouds)
+    if (uSky2.x + uSky2.y + uSky2.z + uSky2.w > 0.0) col += NightSky(V, dark);
   }
+  float tmax = d < 0.99999 ? length(C) : 3000.0;
+  // --- [Moon] glitter on the sea (the sea writes no depth: the plane z = 0 in front of the floor / sky)
+  if (uMoon2.x > 0.0 && uMoon.z > 0.02 && V.z < -0.01 && uCam.z > 0.0) {
+    float tw = -uCam.z / V.z;
+    if (tw < tmax && tw < 1500.0) {
+      vec2 wp = uCam.xy + V.xy * tw;
+      vec2 g = vec2(Noise2(wp * 0.35 + uCam.w * 0.4), Noise2(wp * 0.35 - uCam.w * 0.35 + 9.0)) - 0.5;
+      vec3 Nw = normalize(vec3(g * 0.35, 1.0));
+      float sp = pow(max(dot(reflect(V, Nw), uMoon.xyz), 0.0), 220.0);
+      float sparkle = step(0.72, Noise2(wp * 4.0 + uCam.w * 2.0));
+      col += vec3(0.8, 0.85, 1.0) * sp * (0.4 + sparkle * 2.0) * uMoon2.x * 1.5;
+    }
+  }
+  // --- [DynamicLights] fog glow + lamp halos + [LensGlare] star streaks
+  if (uL0.x > 0.5 && (uL1.z > 0.0 || uL1.x > 0.0 || uMoon2.y > 0.0)) {
+    vec3 gl = vec3(0.0);
+    float aspect = uRes.x * uRes.w;
+    for (int i = 0; i < 16; ++i) {
+      if (i >= int(uL0.x)) break;
+      vec3 Lp = uLP[i].xyz;
+      vec3 Lc = uLC[i].rgb;
+      if (uL1.z > 0.0) gl += Lc * InScatter(Lp, V, tmax) * uL1.z * 0.015;
+      vec3 s = ToScreen(Lp);
+      if (s.z >= 1.0 || s.x < -0.1 || s.y < -0.1 || s.x > 1.1 || s.y > 1.1) continue;
+      float occ = (s.x > 0.0 && s.y > 0.0 && s.x < 1.0 && s.y < 1.0) ? step(LinDepth(s.z) - 0.6, LinDepth(texture(uDepth, s.xy).r)) : 0.0;
+      if (occ <= 0.0) continue;
+      vec2 dv = (vUV - s.xy) * vec2(aspect, 1.0);
+      float dl = length(Lp), sz = clamp(2.5 / max(dl, 1.0), 0.004, 0.06);
+      float r2 = dot(dv, dv);
+      float halo = exp(-r2 / (sz * sz * 4.0));
+      float glow = uLC[i].w > 1.5 ? uMoon2.z : uMoon2.y;
+      gl += Lc * halo * glow * 0.25;
+      if (uL1.x > 0.0) {
+        float sx = exp(-abs(dv.y) / (sz * 0.06)) * exp(-abs(dv.x) / (sz * 6.0));
+        float sy = exp(-abs(dv.x) / (sz * 0.06)) * exp(-abs(dv.y) / (sz * 4.0));
+        gl += Lc * (sx + sy) * uL1.x * 0.18 / (1.0 + dl * 0.03);
+      }
+    }
+    col += gl * uL0.y;
+  }
+  // --- lightning flash (CWeather::LightningFlash)
+  if (uL1.w > 0.0) col += (d < 0.99999 ? col * 1.4 + vec3(0.04, 0.045, 0.06) : vec3(0.35, 0.38, 0.5)) * uL1.w;
   // --- volumetric fog (half-res buffer)
   if (uOn.x > 0.5) { vec4 vf = texture(uVol, vUV); col = col * vf.a + vf.rgb; }
   // --- falling rain streaks
@@ -227,6 +380,16 @@ void main(){
       r += line * step(0.86 - uOn.w * 0.25, h) * (1.0 - fl * 0.25);
     }
     col = mix(col, vec3(0.75, 0.8, 0.85) * (0.3 + Luma(col)), clamp(r * uS2.z * 0.25, 0.0, 0.4));
+  }
+  // --- [NightLook] exposure, contrast, cool shadows, neon saturation
+  if (uNL.w > 0.0) {
+    vec3 nc = col * exp2(uNL.y);
+    nc = max((nc - 0.18) * uNL.x + 0.18, vec3(0.0));
+    float l = Luma(nc);
+    nc = mix(nc, l * vec3(0.55, 0.72, 1.15), uNL.z * (1.0 - smoothstep(0.0, 0.35, l)) * 0.6);
+    float mx = max(nc.r, max(nc.g, nc.b)), sat = mx - min(nc.r, min(nc.g, nc.b));
+    nc += nc * smoothstep(0.35, 0.9, mx) * sat * uMoon2.z * 0.6;
+    col = mix(col, nc, uNL.w);
   }
   oColor = vec4(col, sc.a);
 }

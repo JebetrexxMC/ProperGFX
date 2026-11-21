@@ -1,19 +1,35 @@
-# Proper GFX Mobile 1.5.0 (AML mod for GTA San Andreas Android)
+# TyFMCGFX 1.6.0 (AML mod for GTA San Andreas Android)
 
 | Build | Game | ABI | File | Source tree | Shaders |
 |---|---|---|---|---|---|
-| 32-bit | GTA SA **2.00** | armeabi-v7a | `libProperGFX32.so` | `src32/` | C++/H only (AML + SAUtils), built into the `.so` |
-| 64-bit | GTA SA **2.10** | arm64-v8a | `libProperGFX64.so` | `src64/` + `shaders/{fragment,vertex}` | C++/H + **GLSL**, compiled into the `.so` |
+| 32-bit | GTA SA **2.00** | armeabi-v7a | `libTyFMCGFX32.so` | `src32/` | C++/H only (AML + SAUtils), built into the `.so` |
+| 64-bit | GTA SA **2.10** | arm64-v8a | `libTyFMCGFX64.so` | `src64/` + `shaders/{fragment,vertex}` | C++/H + **GLSL**, compiled into the `.so` |
 
 For **AML 1.4.0** with **FLA 7.6** (no address patches, everything is hooked by exported symbol name). Uses [SAUtils](https://github.com/ThirtyFoxMCx00E1/SAUtils) when installed (optional).
-Formerly *Proper Shader Mobile* (`libProperShader32/64.so`).
+Formerly *Proper GFX Mobile* (`libProperGFX32/64.so`, 1.4-1.5) and *Proper Shader Mobile* (`libProperShader32/64.so`, 1.3 and older).
 
 ## Install
-1. Copy `libProperGFX32.so` (GTA SA 2.00) **or** `libProperGFX64.so` (GTA SA 2.10) into the AML `mods` folder.
-2. Optional: copy the `files/ProperGFX` folder from the zip into `Android/data/com.rockstargames.gtasa/files/` (example LUTs only - the shaders are inside the `.so`).
-3. Start the game. Everything lives in `files/ProperGFX/`; settings are `files/ProperGFX/TYFMC.ProperGFX.ini`.
+1. Copy `libTyFMCGFX32.so` (GTA SA 2.00) **or** `libTyFMCGFX64.so` (GTA SA 2.10) into the AML `mods` folder. **Delete the old `libProperGFX32.so` / `libProperGFX64.so`** so the mod is not loaded twice.
+2. Optional: copy the `files/TyFMCGFX` folder from the zip into `Android/data/com.rockstargames.gtasa/files/` (example LUTs only - the shaders are inside the `.so`).
+3. Start the game. Everything lives in `files/TyFMCGFX/`; settings are `files/TyFMCGFX/TyFMCGFX.ini`, the log is `files/TyFMCGFX/tyfmcgfx_log.txt`.
 
-Upgrading from 1.3: the old `files/ProperShader/` folder is renamed to `files/ProperGFX/` and `settings.ini` to `TYFMC.ProperGFX.ini` automatically (your settings are kept).
+Upgrading: `files/ProperGFX/` (1.4-1.5) and `files/ProperShader/` (1.3) are moved to `files/TyFMCGFX/`, and `TYFMC.ProperGFX.ini` / `settings.ini` are renamed to `TyFMCGFX.ini` on the first launch (your settings are kept; nothing that already exists in the new folder is overwritten).
+
+## 1.6.0 - TyFMCGFX: ZyZGfx 2.0.7 night lighting, Firestorm green menu
+The new `libZyZGFX64.so` from **ZyZGfx 2.0.7** was compared against the old ZyZGFX64 build in Ghidra 12 (symbol / string diff + decompiled hooks). Its new modules were rebuilt here in our own code (64-bit only, GTA SA 2.10):
+* **[DynamicLights]** - hooks on `CShadows::StoreStaticShadow`, `CShadows::StoreCarLightShadow` and `CPointLights::AddLight` collect every lamp, neon sign, building light, car lamp and point light into a 128-light pool; the 32 nearest light the world per pixel (depth-reconstructed), the 4 nearest with screen-space shadows. `ReplaceGameShadows` hides the game's flat light pools.
+* **[VolumetricLights]** - `CVehicle::DoHeadLightBeam` is hooked for every car; the 8 nearest headlight cones are ray-marched through the fog. `ReplaceGameBeams` hides the game's flat beams.
+* **[Moon]** - moon light, dynamic shadows that follow the moon at night, moon rays through the volumetric fog, moon glitter on the sea.
+* **[NightLook] / [NightSky]** - night grade, lamp / neon halos, light in fog, extra night bloom, city glow, stars, Milky Way, shooting stars.
+* **[LensGlare]**, **[WetLightStreaks]** (long reflections of lights on wet roads).
+* **[Weather]** lightning lights the scene (`CWeather::LightningFlash`) and roads dry slowly after rain; **[RainOnCars]** rain beads + wet paint on vehicles.
+* **[AmbientOcclusion] MultiBounce / GIQuality**, **[Performance] DrawDistance / StreamingMemory**, **[Menu] PauseGame**, **[Button] Lock** (both builds).
+* Not ported: ZyZ 2.0's lit / living windows, PBR material highlights and render scale (they need ZyZ's own per-model texture tables or a lower-resolution scene target).
+
+**New menu (both builds)** in the Firestorm *Preferences* look of `Research/images (15).jpeg`: title row with `? _ x`, *Search Settings* box (with an on-screen keyboard) that filters every page, green selected category on the left, green tabs (General / Hardware Settings / Rendering / Post Process / Depth of Field on 64-bit), green check boxes, thin green slider tracks with the value on the right, green drop-downs, Performance-Quality slider with the reset glyph, *Reset to defaults* / *OK* / *Cancel*. The 64-bit build gets a new **Night Lighting** page.
+**Floating button** is now the Firestorm status-bar pill: device clock, the TyFMCGFX icon, FPS and a red end cap; it shrinks to the icon when idle.
+
+**Renamed to TyFMCGFX**: library files, data folder, ini, log, in-game name and SAUtils entries. The public API keeps its `ProperGFX_*` functions; the AML interface is registered as `TyFMCGFX` and still as `ProperGFX`.
 
 ## 1.5.0 - deferred screen-space lighting, menu fix, new menu
 * **No more effects in the main menu / pause menu / over the floating menu.** Before 1.5.0 every effect ran at buffer swap on the final image, on top of the HUD and the menus. Now the 64-bit build runs them inside the frame (after the 3D scene, before `CPostEffects::MobileRender`, the libZyZGFX64 way), so the HUD and menus stay untouched. Both builds stop the effects while `CTimer::m_UserPause` or `m_CodePause` is set.

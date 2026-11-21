@@ -1,6 +1,6 @@
-// Proper GFX Mobile 1.5.0 (64-bit) - deferred screen-space lighting.
+// TyFMCGFX 1.5.0 (64-bit) - deferred screen-space lighting.
 //
-// GTA SA Mobile has a forward renderer (no G-buffer). Like libZyZGFX64, Proper GFX gives the game's scene target a readable depth
+// GTA SA Mobile has a forward renderer (no G-buffer). Like libZyZGFX64, TyFMCGFX gives the game's scene target a readable depth
 // texture (ps_scene.cpp) and records the frame's camera (ps_shadow.cpp). With both, every pixel's world position and normal are rebuilt
 // right after RenderScene, and these passes run on the 3D world only - before the game draws its HUD, radar, menus and pause menu:
 //
@@ -12,6 +12,7 @@
 //   def_taa.glsl, def_fsr.glsl      [TAA] and [FSR] RCAS, after the post effects (still before the HUD)
 #pragma once
 #include "ps_settings.h"
+#include "ps_lights.h"
 #include <GLES2/gl2.h>
 
 struct PSDeferredFrame
@@ -20,6 +21,11 @@ struct PSDeferredFrame
     float sun[3] = {0.f, 0.f, 1.f};           // toward the sun (CTimeCycle::m_VectorToSun)
     bool  headlights = false;                  // player's vehicle at night
     float hl0[3] = {0, 0, 0}, hl1[3] = {0, 0, 0}, hlDir[3] = {0, 1, 0};   // world positions + direction of the two lamps
+    // 1.6.0 (ZyZGfx 2.0 port): the game's lights of this frame (nearest first), car beams, moon, lightning
+    PSLight lights[32]; int nLights = 0;
+    PSBeam  beams[8];   int nBeams = 0;
+    float moon[3] = {0.f, 0.f, -1.f};          // toward the moon (opposite of the sun)
+    float lightning = 0.f;                     // 0..1 flash
 };
 
 struct PSDeferredStats
@@ -27,6 +33,7 @@ struct PSDeferredStats
     bool  es3 = false, ready = false, failed = false;
     uint32_t frames = 0, noCamera = 0;
     int   passes = 0;
+    int   lights = 0, beams = 0;              // 1.6.0: dynamic lights / beams drawn this frame
     bool  ao = false, vol = false, composite = false, coc = false, taa = false, fsr = false;
     char  note[128] = "";
 };

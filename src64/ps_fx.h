@@ -1,4 +1,4 @@
-// Proper GFX Mobile (64-bit) - screen-space post-processing pipeline (GLES2). Every pass is a .glsl file (see ps_glsl.h).
+// TyFMCGFX (64-bit) - screen-space post-processing pipeline (GLES2). Every pass is a .glsl file (see ps_glsl.h).
 #pragma once
 #include "ps_settings.h"
 
@@ -13,7 +13,7 @@ struct PSFrameInfo
     unsigned cocTex = 0;                  // 1.5.0: [DepthOfField] Mode = Adaptive circle-of-confusion texture (0 = none)
 };
 
-// Values for the SAShaderL-compatible uniforms (ShaderFlags is set per pass) + Proper GFX extras, filled by main.cpp every frame
+// Values for the SAShaderL-compatible uniforms (ShaderFlags is set per pass) + TyFMCGFX extras, filled by main.cpp every frame
 struct PSShaderGlobals
 {
     float sunVector[3] = { 0.f, 0.f, 1.f };   // SunVector

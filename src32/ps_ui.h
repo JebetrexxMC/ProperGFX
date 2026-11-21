@@ -1,4 +1,4 @@
-// Proper GFX Mobile - Dear ImGui overlay (floating draggable button + settings window)
+// TyFMCGFX - Dear ImGui overlay (floating draggable button + settings window)
 #pragma once
 #include "ps_settings.h"
 #include "ps_fx.h"
@@ -6,7 +6,7 @@
 
 struct PSUIStatus
 {
-    const char* dir = "";               // files/ProperGFX (absolute)
+    const char* dir = "";               // files/TyFMCGFX (absolute)
     const char* fxStatus = "";
     const char* gameInfo = "";
     int  patchedShaders = 0;
