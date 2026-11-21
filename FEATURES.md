@@ -60,7 +60,7 @@ Legend: ✅ implemented · 🟡 approximated · ❌ not possible on this engine 
 | 50 | Unlimited TXDPs | ❌ not possible on this engine | IDE / streaming parser hooks (separate mod). |
 | 51 | 11k textures configured | ❌ not possible on this engine | PC data pack, not code. |
 | 52 | ModLoader implementation | ✅ implemented | AML mod; LUTs / custom.glsl / ini load from `files/TyFMCGFX/`. |
-| 53 | Public API for modders | ✅ implemented | 64-bit: `src64/propergfx_api.h`, AML interface `TyFMCGFX` (old name `ProperGFX` still registered) + exported `ProperGFX_*` C functions (see API.md). |
+| 53 | Public API for modders | ✅ implemented | 64-bit: TyFMCGFX API (`src64/propergfx_api.h`), AML interface `TyFMCGFX` + exported C functions (see API.md). |
 | 54 | In-game GUI editor | ✅ implemented | Firestorm Preferences menu (green accents), search box with on-screen keyboard, every setting live, presets 1-8, OK / Cancel. |
 | 55 | Lens flare | 🟡 approximated | Screen-space ghosts / halo. |
 | 56 | Anisotropic hair / SSS / terrain splat maps | ❌ not possible on this engine | Need per-material shaders and data. |

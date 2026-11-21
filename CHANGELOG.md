@@ -11,6 +11,7 @@
   * Not ported: lit / living windows, PBR material highlights, render scale.
 * **Menu (both builds)**: Firestorm Preferences with green accents (`common/ps_fsui.h`, shared by both trees): title row `? _ x`, Search Settings + on-screen keyboard, sidebar categories, tabs, green check boxes / tracks / drop-downs, quality track + reset glyph, Reset / OK / Cancel. 32-bit: the single list is split into categories (Graphics, Lighting, Post Process, Anti-aliasing, Camera, Artistic, Interface, Status, Feature Guide). 64-bit: new Night Lighting page and Hardware Settings tab.
 * **Floating button (both builds)**: Firestorm status-bar pill (clock, icon, FPS, red cap); [Button] Lock.
+* AML mod id is now `net.tyfmcgfx.mobile`; the menu no longer shows any "Proper" name (Feature Guide list renamed). If the old `libProperGFX*.so` is still installed, TyFMCGFX stops and logs "delete it".
 
 ## 1.5.0
 * Menu fix (both builds): effects no longer change the main menu, the pause menu or the area behind the floating menu.

@@ -1,4 +1,4 @@
-// TyFMCGFX (formerly TyFMCGFX / Proper Shader Mobile) - settings (files/TyFMCGFX/TyFMCGFX.ini).
+// TyFMCGFX (formerly Proper GFX Mobile / Proper Shader Mobile) - settings (files/TyFMCGFX/TyFMCGFX.ini).
 // Modelled on how the PC mod is configured: one section per feature, each with an Enabled switch,
 // separate Day / Night values for the parameters that matter, and Low / Medium / High presets.
 #pragma once

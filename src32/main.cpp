@@ -38,7 +38,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, TyFMCGFX, 1.6.0, TyFMC)
+MYMOD(net.tyfmcgfx.mobile, TyFMCGFX, 1.6.0, TyFMC)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -473,6 +473,7 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     logger->SetTag("TyFMCGFX");
     void* hGame = aml->GetLibHandle("libGTASA.so");
     if (!hGame) { logger->Error("libGTASA.so not found"); return; }
+    if (aml->HasMod("net.propergfx.mobile")) { logger->Error("the old libProperGFX32/64.so is also installed - delete it, TyFMCGFX replaces it"); return; }
     if (aml->HasMod("net.propershader.mobile")) { logger->Error("Proper Shader Mobile 1.2 (libProperShader32/64.so) is also installed - delete it, both cannot run together"); return; }
 
     const char* base = aml->GetAndroidDataPath();

@@ -55,7 +55,7 @@ static const PSFeature kFeatures[] = {
  {"Unlimited TXDPs", 2, "IDE / streaming parser hooks (separate mod)."},
  {"11k textures configured", 2, "PC data pack, not code."},
  {"ModLoader implementation", 0, "AML mod; LUTs / custom.glsl / ini load from files/TyFMCGFX/."},
- {"Public API for modders", 0, "64-bit: src64/propergfx_api.h, AML interface TyFMCGFX (old name ProperGFX still registered) + exported ProperGFX_* C functions (see API.md)."},
+ {"Public API for modders", 0, "64-bit: TyFMCGFX API, AML interface TyFMCGFX + exported C functions (see API.md)."},
  {"In-game GUI editor", 0, "Firestorm Preferences menu (green accents), search box with on-screen keyboard, every setting live, presets 1-8, OK / Cancel."},
  {"Lens flare", 1, "Screen-space ghosts / halo."},
  {"Anisotropic hair / SSS / terrain splat maps", 2, "Need per-material shaders and data."},

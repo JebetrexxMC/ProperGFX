@@ -1,4 +1,4 @@
-// Honest feature table for the "Proper Shaders (PC)" feature list.
+// Honest feature table for the TyFMCGFX feature list.
 // status: 0 = implemented, 1 = approximated (screen-space / shader-patch substitute), 2 = cannot do in GTA SA Mobile
 #pragma once
 struct PSFeature { const char* name; int status; const char* note; };

@@ -781,8 +781,8 @@ void DrawFeatures(int page, PSSettings& s, const PSUIStatus& st)
     }
 
     // ---------------------------------------------------------------- not possible on mobile
-    Sep("PROPER SHADERS (PC) FEATURE LIST");
-    if (ImGui::CollapsingHeader("Proper Shaders (PC) feature list"))
+    Sep("TYFMCGFX FEATURE LIST (VS PC SHADER MODS)");
+    if (ImGui::CollapsingHeader("TyFMCGFX feature list (what this build has)"))
     {
         ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.5f, 1), "[OK]"); ImGui::SameLine(); ImGui::TextUnformatted("implemented");
         ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.3f, 1), "[~]");  ImGui::SameLine(); ImGui::TextUnformatted("approximated");
