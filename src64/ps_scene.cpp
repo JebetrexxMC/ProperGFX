@@ -42,7 +42,7 @@ void   (*g_mutexRelease)(void*) = nullptr;
 void   (*g_process)(void*) = nullptr;
 void*   g_dbgMarker = nullptr;
 CmdFn   g_prev = nullptr;                                // what was in the slot before (rqDebugMarker or another mod's handler)
-bool    g_regTried = false, g_wanted = false;
+bool    g_regTried = false, g_wanted = false, g_postWanted = false;
 PSSceneEventFn g_handler = nullptr;
 PSSceneStats S;
 
@@ -233,6 +233,7 @@ bool Scene_Init(PSSymLookupFn h)
 
 void Scene_SetHandler(PSSceneEventFn fn) { g_handler = fn; }
 void Scene_SetWanted(bool on) { g_wanted = on; }
+void Scene_SetPostWanted(bool on) { g_postWanted = on; }
 bool Scene_Wanted() { return g_wanted && !S.disabled; }
 void Scene_SetScreenSize(int w, int h) { g_sw = w; g_sh = h; }
 
@@ -240,7 +241,11 @@ bool Scene_EventsReady() { return S.rqReady; }
 
 bool Scene_PostEvent(int ev, int arg)
 {
-    if (!g_wanted || S.disabled || ev < 0 || ev > 4) return false;
+    // 1.6.2 HUD fix: the post-effect events (after the world, before the HUD) are needed whenever the post effects are on - 1.6.1 only
+    // sent them while shadows / deferred lighting were on, so with DynamicShadows off the effects fell back to swap time and graded the HUD
+    const bool want = g_wanted || (g_postWanted && (ev == PS_EV_AFTER_SCENE || ev == PS_EV_POST));
+    if (!want || ev < 0 || ev > 4) return false;
+    if (S.disabled && ev != PS_EV_AFTER_SCENE && ev != PS_EV_POST) return false;   // a failed depth upgrade must not take the HUD fix with it
     if (!Register()) return false;
     char* rq = (char*)*g_rqVar;
     if (!rq) return false;

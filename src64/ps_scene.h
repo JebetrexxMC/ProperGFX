@@ -39,6 +39,7 @@ struct PSSceneStats
 typedef void* (*PSSymLookupFn)(const char* name);
 bool  Scene_Init(PSSymLookupFn lookup);
 void  Scene_SetHandler(PSSceneEventFn fn);      // called on the render thread for every event
+void  Scene_SetPostWanted(bool on);             // 1.6.2: AFTER_SCENE / POST events for the in-frame post effects
 void  Scene_SetWanted(bool on);                 // depth upgrade + events only while deferred shadows are on
 bool  Scene_Wanted();
 bool  Scene_PostEvent(int ev, int arg = 0);     // game thread (RenderScene / CEntity::Render hooks)

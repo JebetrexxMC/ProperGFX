@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define PS_VERSION     "1.6.1"
+#define PS_VERSION     "1.6.2"
 #define PS_DIR_NAME    "TyFMCGFX"               // files/TyFMCGFX (1.4-1.5: files/TyFMCGFX, 1.3 and older: files/ProperShader - moved automatically)
 #define PS_INI_NAME    "TyFMCGFX.ini"           // 1.4-1.5: TyFMCGFX.ini, 1.3 and older: settings.ini (renamed automatically)
 #define PS_BUTTON_HIDDEN_BELOW 0.06f            // 64-bit: anything below = 0 = invisible (an old 0.05 from the 32-bit range included)
@@ -109,6 +109,11 @@ struct PSSettings
     float enhanceClarity = 0.45f;
     float enhanceDenoise = 0.25f;
     float enhanceRadius = 2.5f;
+    bool  sunShadowsOn = true; float sunShadowLength = 1.f, sunShadowWidth = 1.f; bool sunShadowLowLong = true;   // 1.6.2 [SunShadows]
+    float tmStrength = 1.f, tmWhite = 1.f, tmContrast = 1.f, tmSaturation = 1.f;   // 1.6.2 [SimulateHDR] tone-mapping controls
+    // 1.6.2 prod80 ports (MIT): [ColorBalance] shadows / midtones / highlights RGB shift, [Technicolor] 3-strip film look
+    bool  cbOn = false; float cbS[3] = { -0.10f, 0.0f, 0.12f }, cbM[3] = { 0.f, 0.f, 0.f }, cbH[3] = { 0.10f, 0.03f, -0.08f };
+    bool  techOn = false; float techStrength = 0.5f, techColor = 0.2f, techBright = 1.0f, techSat = 1.0f;
     bool  perfOverlay  = false;      // 1.6.1 [PerformanceOverlay]: FPS, 1% low, frame-time graph, CPU temperature, free RAM
     int   perfCorner   = 1;          // 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right
     bool  waterOn      = true;
@@ -176,6 +181,8 @@ struct PSSettings
     float ssrStrength  = 0.55f, ssrDry = 0.12f;
     bool  rainSurfOn   = true;       // [WorldRain] puddles + ripples on upward surfaces while it rains (CWeather::WetRoads)
     float puddles      = 0.6f, ripples = 0.6f;
+    bool  mudOn        = true;       // 1.6.2 [MudPuddles] muddy water, varied puddle sizes, rain splashes, water running down walls
+    float mudAmount    = 0.55f, puddleVariety = 0.7f, splashes = 0.6f, drips = 0.5f;
     bool  rainFallOn   = true;       // [RainFall] screen-space falling rain streaks
     float rainFall     = 0.5f;
     bool  causticsOn   = true;       // [WaterCaustics] projected onto the sea floor (world position from depth)

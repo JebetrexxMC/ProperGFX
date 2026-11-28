@@ -37,6 +37,8 @@ static const Field kFields[] = {
     E("General", "Quality", quality, PS_QualityNames, 5) E("General", "Look", look, PS_LookNames, 8)
     B("General", "AdaptiveQuality", adaptive) I("General", "TargetFPS", targetFps) E("General", "TimeOfDay", timeOfDay, PS_TimeNames, 3)
     B("SimulateHDR", "Enabled", hdr) E("SimulateHDR", "Tonemapper", tonemap, PS_TonemapNames, 6)
+    B("SunShadows", "Enabled", sunShadowsOn) F("SunShadows", "Length", sunShadowLength) F("SunShadows", "Width", sunShadowWidth) B("SunShadows", "LongAtLowSun", sunShadowLowLong)
+    F("SimulateHDR", "ToneStrength", tmStrength) F("SimulateHDR", "WhitePoint", tmWhite) F("SimulateHDR", "ToneContrast", tmContrast) F("SimulateHDR", "ToneSaturation", tmSaturation)
     D("SimulateHDR", "Amount", hdrAmount) D("SimulateHDR", "Exposure", exposure)
     B("AutoExposure", "Enabled", autoExp) F("AutoExposure", "Bias", autoBias) F("AutoExposure", "Range", autoRange) F("AutoExposure", "Speed", autoSpeed)
     B("Bloom", "Enabled", bloom) D("Bloom", "Intensity", bloomIntensity) F("Bloom", "Threshold", bloomThreshold) F("Bloom", "Radius", bloomRadius)
@@ -64,6 +66,11 @@ static const Field kFields[] = {
     B("WaterSurface", "Enabled", waterOn) F("WaterSurface", "Detail", waterDetail)
     B("DetailTextures", "Enabled", detailOn) F("DetailTextures", "Strength", detailStrength) F("DetailTextures", "Relief", detailRelief)
     B("VisualEnhance", "Enabled", enhance) F("VisualEnhance", "Clarity", enhanceClarity) F("VisualEnhance", "Denoise", enhanceDenoise) F("VisualEnhance", "Radius", enhanceRadius)
+    B("ColorBalance", "Enabled", cbOn) F("ColorBalance", "ShadowsR", cbS[0]) F("ColorBalance", "ShadowsG", cbS[1]) F("ColorBalance", "ShadowsB", cbS[2])
+    F("ColorBalance", "MidtonesR", cbM[0]) F("ColorBalance", "MidtonesG", cbM[1]) F("ColorBalance", "MidtonesB", cbM[2])
+    F("ColorBalance", "HighlightsR", cbH[0]) F("ColorBalance", "HighlightsG", cbH[1]) F("ColorBalance", "HighlightsB", cbH[2])
+    B("Technicolor", "Enabled", techOn) F("Technicolor", "Strength", techStrength) F("Technicolor", "ColorStrength", techColor)
+    F("Technicolor", "Brightness", techBright) F("Technicolor", "Saturation", techSat)
     B("PerformanceOverlay", "Enabled", perfOverlay) I("PerformanceOverlay", "Corner", perfCorner)
     B("ImprovedZFighting", "Enabled", zfix) F("ImprovedZFighting", "NearClip", nearClip)
     B("DynamicShadows", "Enabled", shadows) F("DynamicShadows", "Strength", shadowStrength) I("DynamicShadows", "Resolution", shadowRes)
@@ -87,6 +94,8 @@ static const Field kFields[] = {
     B("Aurora", "Enabled", auroraOn) F("Aurora", "Strength", auroraStrength)
     B("SSR", "Enabled", ssrOn) F("SSR", "Strength", ssrStrength) F("SSR", "DrySurfaces", ssrDry)
     B("WorldRain", "Enabled", rainSurfOn) F("WorldRain", "Puddles", puddles) F("WorldRain", "Ripples", ripples)
+    B("MudPuddles", "Enabled", mudOn) F("MudPuddles", "Mud", mudAmount) F("MudPuddles", "Variety", puddleVariety)
+    F("MudPuddles", "Splashes", splashes) F("MudPuddles", "Drips", drips)
     B("RainFall", "Enabled", rainFallOn) F("RainFall", "Intensity", rainFall)
     B("WaterCaustics", "Enabled", causticsOn) F("WaterCaustics", "Strength", causticsStrength)
     B("TAA", "Enabled", taaOn) F("TAA", "Blend", taaBlend)
@@ -135,13 +144,18 @@ static void Sanitize(PSSettings& s)
     s.cloudCoverage = clampf(s.cloudCoverage, 0.f, 1.f); s.cloudDensity = clampf(s.cloudDensity, 0.f, 2.f); s.cloudSpeed = clampf(s.cloudSpeed, 0.f, 5.f);
     s.pbrSkyBlend = clampf(s.pbrSkyBlend, 0.f, 1.f); s.auroraStrength = clampf(s.auroraStrength, 0.f, 2.f);
     s.ssrStrength = clampf(s.ssrStrength, 0.f, 1.f); s.ssrDry = clampf(s.ssrDry, 0.f, 1.f);
-    s.puddles = clampf(s.puddles, 0.f, 1.f); s.ripples = clampf(s.ripples, 0.f, 1.f); s.rainFall = clampf(s.rainFall, 0.f, 1.f);
+    s.puddles = clampf(s.puddles, 0.f, 1.f); s.ripples = clampf(s.ripples, 0.f, 1.f);
+    s.mudAmount = clampf(s.mudAmount, 0.f, 1.f); s.puddleVariety = clampf(s.puddleVariety, 0.f, 1.f); s.splashes = clampf(s.splashes, 0.f, 1.f); s.drips = clampf(s.drips, 0.f, 1.f); s.rainFall = clampf(s.rainFall, 0.f, 1.f);
     s.causticsStrength = clampf(s.causticsStrength, 0.f, 2.f); s.taaBlend = clampf(s.taaBlend, 0.5f, 0.97f); s.fsrSharpness = clampf(s.fsrSharpness, 0.f, 1.f);
     s.shadowCascades = s.shadowCascades >= 3 ? 4 : 2;
     s.dofMode = (s.dofMode < 0 || s.dofMode > 2) ? 2 : s.dofMode; s.dofFocusDist = clampf(s.dofFocusDist, 0.f, 500.f); s.dofAperture = clampf(s.dofAperture, 0.2f, 3.f);
     s.dofBokeh = clampf(s.dofBokeh, 0.f, 2.f); s.dofRadius = clampf(s.dofRadius, 0.3f, 3.f);
     s.detailStrength = clampf(s.detailStrength, 0.f, 1.5f); s.detailRelief = clampf(s.detailRelief, 0.f, 1.5f);
     s.enhanceClarity = clampf(s.enhanceClarity, 0.f, 1.5f); s.enhanceDenoise = clampf(s.enhanceDenoise, 0.f, 1.f); s.enhanceRadius = clampf(s.enhanceRadius, 1.f, 5.f);
+    s.sunShadowLength = clampf(s.sunShadowLength, 0.5f, 2.5f); s.sunShadowWidth = clampf(s.sunShadowWidth, 0.5f, 2.f);
+    s.tmStrength = clampf(s.tmStrength, 0.f, 1.f); s.tmWhite = clampf(s.tmWhite, 0.5f, 8.f); s.tmContrast = clampf(s.tmContrast, 0.6f, 1.6f); s.tmSaturation = clampf(s.tmSaturation, 0.f, 2.f);
+    for (int i = 0; i < 3; ++i) { s.cbS[i] = clampf(s.cbS[i], -1.f, 1.f); s.cbM[i] = clampf(s.cbM[i], -1.f, 1.f); s.cbH[i] = clampf(s.cbH[i], -1.f, 1.f); }
+    s.techStrength = clampf(s.techStrength, 0.f, 1.f); s.techColor = clampf(s.techColor, 0.f, 1.f); s.techBright = clampf(s.techBright, 0.5f, 1.5f); s.techSat = clampf(s.techSat, 0.f, 1.5f);
     s.perfCorner = s.perfCorner < 0 || s.perfCorner > 3 ? 1 : s.perfCorner;
     s.look = s.look < 0 ? 0 : (s.look >= PS_LookCount ? 0 : s.look);
     s.gradePreset = s.gradePreset < 0 ? 0 : (s.gradePreset >= PS_GradeCount ? 0 : s.gradePreset);

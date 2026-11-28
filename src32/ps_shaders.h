@@ -131,6 +131,8 @@ uniform vec4 uK;      // autoBias, autoRange, tonemapNorm, frame
 uniform vec4 uGS;     // grade shadow tint
 uniform vec4 uGH;     // grade highlight tint, w = fxaa strength
 uniform vec4 uEN;     // enhance: clarity, (unused), denoise, radius px
+uniform vec4 uTM;     // 1.6.2 tone mapping: strength, contrast, saturation, white point
+uniform vec4 uP1; uniform vec4 uP2; uniform vec4 uP3; uniform vec4 uP4;   // 1.6.2 prod80 colour balance + Technicolor
 
 float lum3(vec3 c){ return dot(c, vec3(0.299,0.587,0.114)); }
 vec3 toLin(vec3 c){ return c*c; }                 // gamma 2.0 approximation: 1 MUL instead of pow()
@@ -398,7 +400,12 @@ void main(){
   lin += toLin(flare(uv)) * (uD.z * 1.4);
 #endif
 #if TM_MODE > 0
-  lin = tonemap(lin) * uK.z;
+  {   // 1.6.2 [ToneMapping] menu settings: strength (blend with the plain clipped image), contrast around mid grey, saturation
+    vec3 pre = clamp(lin, 0.0, 1.0);
+    lin = mix(pre, tonemap(lin) * uK.z, uTM.x);
+    lin = 0.18 * pow(max(lin, vec3(0.0)) / 0.18, vec3(uTM.y));
+    lin = mix(vec3(dot(lin, vec3(0.2126, 0.7152, 0.0722))), lin, uTM.z);
+  }
 #else
   lin = clamp(lin, 0.0, 1.0);
 #endif
@@ -419,6 +426,28 @@ void main(){
 #ifdef FX_GAMMA
     col = pow(max(col, vec3(0.0)), vec3(1.0/uB.w));
 #endif
+  }
+#endif
+#ifdef FX_GRADE
+  // 1.6.2 prod80 ports (MIT, prod80-ReShade-Repository): PD80_04_Color_Balance (shadows / midtones / highlights shift, separation mode 0)
+  // and PD80_04_Technicolor (3 strip). uP1..3 rgb = shadow / mid / highlight shift, uP1.w = Technicolor saturation,
+  // uP4 = (Technicolor strength, colour balance on, colour strength, brightness). Off = one uniform compare each.
+  if (uP4.y > 0.0) {
+    vec3 c = clamp(col, 0.0, 1.0);
+    float pl = dot(c, vec3(0.333333, 0.333334, 0.333333));
+    vec3 ds = max(1.0 - c * 2.0, 0.0); ds = ds * ds * (3.0 - 2.0 * ds);
+    vec3 dh = max((c - 0.5) * 2.0, 0.0); dh = dh * dh * (3.0 - 2.0 * dh);
+    vec3 mids = clamp(1.0 - ds - dh, 0.0, 1.0);
+    col = clamp(c + c * (ds * uP1.rgb + mids * uP2.rgb) * (1.0 - c) + dh * (uP3.rgb * (1.0 - pl)), 0.0, 1.0);
+  }
+  if (uP4.x > 0.0) {
+    vec3 o = clamp(col, 0.0, 1.0);
+    vec3 tp = 1.0 - o;
+    vec3 t2 = o * tp.grg * tp.bbr;
+    tp = t2 * uP4.z; t2 *= uP4.w;
+    vec3 r = o - tp.yxy + t2 - tp.zzx;
+    r = mix(vec3(dot(r, vec3(0.212656, 0.715158, 0.072186))), r, uP1.w);
+    col = mix(o, r, uP4.x);
   }
 #endif
 #ifdef FX_LUT

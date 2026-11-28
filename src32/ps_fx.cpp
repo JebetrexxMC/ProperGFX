@@ -340,7 +340,8 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
     const bool gradeNeutral = fabsf(satEff - 1.f) < 0.005f && fabsf(conEff - 1.f) < 0.005f && fabsf(s.vibrance) < 0.005f && fabsf(s.temperature) < 0.005f &&
                               fabsf(s.tint) < 0.005f && fabsf(s.lift) < 0.002f && fabsf(s.gain - 1.f) < 0.005f &&
                               (s.gradePreset == 0 || ga < 0.01f);
-    const bool wantGrade = s.grading && !gradeNeutral;
+    const bool wantP80 = s.grading && ((s.cbOn) || (s.techOn && s.techStrength > 0.01f));   // 1.6.2 prod80 ports live in the grade block
+    const bool wantGrade = s.grading && (!gradeNeutral || wantP80);
 
     uint32_t key = (((uint32_t)tm & 3u) << 18) | (((uint32_t)tm & 4u) << 22);
     if (s.enhance && (s.enhanceClarity > 0.01f || s.enhanceDenoise > 0.01f)) key |= F_ENHANCE;
@@ -357,8 +358,8 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
     glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE); glDisable(GL_SAMPLE_COVERAGE);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-    // 1) grab the finished frame
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    // 1) grab the finished frame (1.6.2: in-frame = the game's target before the HUD is drawn)
+    glBindFramebuffer(GL_FRAMEBUFFER, fi.targetFbo);
     BindTex(0, G.sceneTex);
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
     GLuint src = G.sceneTex;
@@ -439,8 +440,8 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
         dofTex = G.dofC.tex; fetches += 1.f;
     }
 
-    // 6) final composite -> back buffer (specialised variant: disabled features cost nothing)
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    // 6) final composite -> the same target (specialised variant: disabled features cost nothing)
+    glBindFramebuffer(GL_FRAMEBUFFER, fi.targetFbo);
     glViewport(0, 0, w, h);
     const Prog& P = *PF;
     glUseProgram(P.id);
@@ -457,7 +458,7 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
     Set4(P, "uDofQ", s.dofBokeh, s.tiltStrength, s.tiltWidth, 0.f);
 
     const float k = (tm == TM_OFF) ? 0.f : 1.8f * s.hdrAmount.v;
-    const float norm = (tm == TM_OFF) ? 1.f : 1.f / fmaxf(TmCpu(tm, 1.f + k), 0.05f);
+    const float norm = (tm == TM_OFF) ? 1.f : 1.f / fmaxf(TmCpu(tm, (1.f + k) * s.tmWhite), 0.05f);   // 1.6.2: WhitePoint = the input level that maps to white
     G.frame = fmodf(G.frame + 1.f, 64.f);
     Set4(P, "uRes", (float)w, (float)h, 1.f / w, 1.f / h);
     Set4(P, "uA", fi.time, s.exposure.v, k, 0.f);
@@ -469,6 +470,11 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
     Set4(P, "uG", s.celAmount, s.celLevels, s.outlineStrength, s.outlineThreshold);
     Set4(P, "uH", s.vhsStrength, s.tiltFocus, s.tiltWidth, 0.f);
     Set4(P, "uEN", s.enhanceClarity, 0.f, s.enhanceDenoise, s.enhanceRadius);
+    Set4(P, "uTM", s.tmStrength, s.tmContrast, s.tmSaturation, s.tmWhite);
+    Set4(P, "uP1", s.cbS[0], s.cbS[1], s.cbS[2], s.techSat);
+    Set4(P, "uP2", s.cbM[0], s.cbM[1], s.cbM[2], 0.f);
+    Set4(P, "uP3", s.cbH[0], s.cbH[1], s.cbH[2], 0.f);
+    Set4(P, "uP4", (s.techOn && wantP80) ? s.techStrength : 0.f, (s.cbOn && wantP80) ? 1.f : 0.f, s.techColor, s.techBright);
     Set4(P, "uSun", fi.sunX, fi.sunY, fi.sunVis, s.sunRaysDecay);
     { const PSLutInfo& li = LUT_Info(); Set4(P, "uLutP", (float)(li.n > 1 ? li.n : 16), (float)(li.tilesPerRow > 0 ? li.tilesPerRow : 16), li.w > 0 ? 1.f / li.w : 1.f / 256.f, li.h > 0 ? 1.f / li.h : 1.f / 16.f); }
     Set4(P, "uK", s.autoBias, s.autoRange, norm, G.frame);

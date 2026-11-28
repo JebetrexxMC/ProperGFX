@@ -12,6 +12,8 @@ static const char* kV430 = "#version 100\nprecision highp float;uniform mat4 Pro
 static const char* kP40a = "precision mediump float;varying mediump float Out_FogAmt;uniform lowp vec3 FogColor;varying lowp vec4 Out_Color;void main(){lowp vec4 fcolor;fcolor = Out_Color;fcolor.xyz = mix(fcolor.xyz, FogColor, Out_FogAmt);gl_FragColor = fcolor;}";
 static const char* kP431 = "precision mediump float;uniform sampler2D Diffuse;varying mediump vec2 Out_Tex0;varying mediump float Out_FogAmt;uniform lowp vec3 FogColor;varying lowp vec4 Out_Color;void main(){lowp vec4 fcolor;lowp vec4 diffuseColor = texture2D(Diffuse, Out_Tex0, -0.5);fcolor = diffuseColor;fcolor *= Out_Color;fcolor.xyz = mix(fcolor.xyz, FogColor, Out_FogAmt);gl_FragColor = fcolor;/*ATBEGIN*/if (gl_FragColor.a < 0.2) { discard; }/*ATEND*/}";
 static const char* kP434 = "precision mediump float;uniform sampler2D Diffuse;varying mediump vec2 Out_Tex0;varying mediump float Out_FogAmt;uniform lowp vec3 FogColor;varying lowp vec4 Out_Color;uniform lowp float AlphaModulate;void main(){lowp vec4 fcolor;lowp vec4 diffuseColor = texture2D(Diffuse, Out_Tex0, -0.5);fcolor = diffuseColor;fcolor *= Out_Color;fcolor.xyz = mix(fcolor.xyz, FogColor, Out_FogAmt);gl_FragColor = fcolor;gl_FragColor.a *= AlphaModulate;}";
+// 1.6.2: a layout without the exact WorldPos statement (compressed positions) - 32-bit receivers now go at the end of main()
+static const char* kV43c = "#version 100\nprecision highp float;uniform mat4 ProjMatrix;uniform mat4 ViewMatrix;uniform mat4 ObjMatrix;attribute vec3 Position;attribute vec3 Normal;attribute vec2 TexCoord0;attribute vec4 GlobalColor;varying mediump vec2 Out_Tex0;uniform vec3 CameraPosition;varying mediump float Out_FogAmt;uniform vec3 FogDistances;varying lowp vec4 Out_Color;void main() {\tvec4 WorldPos = ObjMatrix * vec4(Position * 0.0078125, 1.0);\tvec4 ViewPos = ViewMatrix * WorldPos;\tgl_Position = ProjMatrix * ViewPos;vec3 WorldNormal = (ObjMatrix * vec4(Normal * 0.0078125,0.0)).xyz;Out_FogAmt = clamp((length(WorldPos.xyz - CameraPosition.xyz) - FogDistances.x) * FogDistances.z, 0.0, 1.00);Out_Tex0 = TexCoord0 / 512.0;Out_Color = GlobalColor;}";
 static bool dump(const char* path, const std::string& s, bool addVersion) { FILE* f = fopen(path, "w"); if (!f) return false; if (addVersion) fputs("#version 100\n", f); fputs(s.c_str(), f); fclose(f); return true; }
 int main(int argc, char** argv)
 {
@@ -27,7 +29,11 @@ int main(int argc, char** argv)
         if (!World_PatchPixelSource(t.flags, t.src, o, true, true, &sh) || !sh) { printf("FAIL %s not patched with shadows\n", t.name); ++bad; continue; }
         snprintf(p, sizeof(p), "%s/%s.frag", out, t.name); dump(p, o, true);   // the game's pixel shaders have no #version: glslang needs one (line 1), the patch starts later
     }
-    struct { unsigned flags; const char* src; const char* name; } vx[] = { { 0x40a, kV40a, "v40a" }, { 0x430, kV430, "v430" } };
+    struct { unsigned flags; const char* src; const char* name; } vx[] = { { 0x40a, kV40a, "v40a" }, { 0x430, kV430, "v430" }
+#ifndef PGFX64
+        , { 0x430, kV43c, "v43c" }
+#endif
+    };
     for (auto& t : vx)
     {
         if (!World_PatchVertexSource(t.flags, t.src, o)) { printf("FAIL %s not patched\n", t.name); ++bad; continue; }

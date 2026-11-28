@@ -1,4 +1,4 @@
-# TyFMCGFX 1.6.1 (AML mod for GTA San Andreas Android)
+# TyFMCGFX 1.6.2 (AML mod for GTA San Andreas Android)
 
 | Build | Game | ABI | File | Source tree | Shaders |
 |---|---|---|---|---|---|
@@ -14,6 +14,19 @@ Formerly *Proper GFX Mobile* (`libProperGFX32/64.so`, 1.4-1.5) and *Proper Shade
 3. Start the game. Everything lives in `files/TyFMCGFX/`; settings are `files/TyFMCGFX/TyFMCGFX.ini`, the log is `files/TyFMCGFX/tyfmcgfx_log.txt`.
 
 Upgrading: `files/ProperGFX/` (1.4-1.5) and `files/ProperShader/` (1.3) are moved to `files/TyFMCGFX/`, and `TYFMC.ProperGFX.ini` / `settings.ini` are renamed to `TyFMCGFX.ini` on the first launch (your settings are kept; nothing that already exists in the new folder is overwritten).
+
+## 1.6.2 - HUD fix, mud puddles, sun shadows, tone mapping
+* **HUD / UI no longer graded (both builds)**: the post effects (grading, bloom, contrast and so on) could land on the HUD, radar, menus and text. 32-bit: the effects ran at buffer swap, after the HUD was drawn. They now run inside the frame from a render-queue command placed after `CPostEffects::MobileRender` and before the 2D pass (new `src32/ps_rq.cpp`, with a swap-time fallback if the queue layout is not recognised). 64-bit: the in-frame scene events were only sent while dynamic shadows or deferred lighting were on, so presets with shadows off (e.g. Low) fell back to swap time. They are now sent whenever the post effects are on.
+* **Shadow flicker fix (both builds)**: the smoothed sun direction turned the shadow light matrix a little every frame, which defeated the texel snapping and made the edges shimmer. The light now turns in small steps (about 0.4 degrees). A frame without a sun vector no longer switches the shadows off: the last sun is held for up to 90 frames.
+* **[SunShadows] (both builds)**: the game's own shadows (peds, vehicles, poles, trees) now point away from the real sun, are longer at low sun and fade out at night. Length and Width are adjustable. The idea came from studying Real Shadow Sun (`docs/libRealShadowSun.zip`) in Ghidra. That mod is closed-source with no license, so none of its code was copied. This is new code that hooks `CTimeCycle::Update`.
+* **32-bit receivers**: vertex shaders that compute WorldPos in another way (e.g. compressed positions) now get the shadow receiver at the end of `main()` instead of being skipped. As a result more surfaces receive the shadow map.
+* **[MudPuddles] (64-bit)**: puddles grow and dry with the rain wetness, vary in size and shape, and have muddy brown water with a dark soaked rim on roads, sidewalks and roofs. Splash rings from raindrops and drips running down walls make the environment feel alive. Settings: Enabled, Mud, Variety, Splashes, Drips. This needs the deferred composite. The 32-bit build keeps the wet darkening.
+* **[ColorBalance] and [Technicolor] (both builds)**: ported from prod80's ReShade shaders (MIT), with shadows/midtones/highlights colour balance and Technicolor 3-strip. Credits are in `THIRD_PARTY_NOTICES.md`.
+* **Tone mapping settings (both builds)**: the mod menu's SimulateHDR section now has Strength, White point, Contrast and Saturation for the selected tone mapper (ini: ToneStrength, WhitePoint, ToneContrast, ToneSaturation).
+* Not used: Reshade-Unlocked (Windows injector, BSD-3), URTI (DirectX 12 ray tracing, PC only), ScarlettPort (Xbox port layer, no license), glsl-shaders (emulator filters, mixed licenses), GLSL (the Khronos specification) and NoodlesPlate (GPL-3 desktop editor).
+* Tests: new `tools/host_rq32_test.cpp` and `tools/host_sunshadow_test.cpp`. `host_patch_test` also covers a compressed-position vertex shader. `glsl_validate`: 640 variants, 0 failed.
+
+Not touched: the loading screens, the neon join and < Spawn >.
 
 ## 1.6.1 - crash fix, real depth of field, GTA VI style, VisualEnhance
 * **Crash fix (both builds)**: 1.6.0 could crash on some Mali GPUs (SIGSEGV in `libGLES_mali` `memcpy` under `glDrawElements` while the shadow cascades replayed the frame). The replay re-issued draws whose index or vertex range no longer fit the buffers the game had since re-uploaded, and left extra vertex attributes enabled. New `common/ps_replay_guard.h` keeps a CPU copy of the 16-bit index buffers, checks every remembered draw's highest index against its vertex buffer before replaying it, skips draws it cannot prove safe, and turns off attributes 1-7 during the replay.

@@ -278,6 +278,7 @@ uniform highp vec4 uL1;             // x glare, y wet streaks, z fog glow, w lig
 uniform highp vec4 uMoon;           // xyz direction toward the moon, w moon light (0 = off)
 uniform highp vec4 uMoon2;          // x glitter, y lamp glow, z neon glow, w AO multi-bounce
 uniform highp vec4 uNL;             // x contrast, y exposure (EV), z colour shift, w night look amount (0 = off)
+uniform highp vec4 uMud;            // 1.6.2 [MudPuddles] x mud water, y size variety, z rain splashes, w wall drips (0 = off)
 uniform highp vec4 uSky2;           // x city glow, y stars, z Milky Way, w shooting stars (all * night)
 out vec4 oColor;
 
@@ -370,6 +371,25 @@ vec2 Ripples(vec2 p, float t){
     g += dv / max(r, 1e-3) * ring;
   }
   return g * 0.35;
+}
+
+// 1.6.2 [MudPuddles] rain drop impacts: a short bright crown per cell, random position and timing (rain hitting roads, sidewalks, roofs)
+float Splash(vec2 p, float t){
+  vec2 q = p * 5.0; vec2 i = floor(q), f = fract(q) - 0.5;
+  float h = Hash12(i + 19.7);
+  vec2 o = (vec2(Hash12(i + 2.3), Hash12(i + 8.9)) - 0.5) * 0.6;
+  float ph = fract(t * (1.6 + h * 1.3) + h * 7.0);
+  float r = length(f - o);
+  return smoothstep(0.05, 0.0, abs(r - ph * 0.16)) * (1.0 - ph) * (1.0 - ph) * step(0.45, h);
+}
+// water running down walls / dripping from roof edges: thin animated streaks on vertical surfaces
+float Drips(vec3 W, vec3 N, float t){
+  vec2 hz = normalize(vec2(-N.y, N.x) + 1e-4);
+  float u = dot(W.xy, hz) * 3.0; float col = floor(u);
+  float h = Hash12(vec2(col, 4.1));
+  float x = abs(fract(u) - 0.5 - (h - 0.5) * 0.6);
+  float y = fract(W.z * 0.35 + t * (0.25 + h * 0.35) + h * 5.0);
+  return smoothstep(0.06, 0.0, x) * smoothstep(0.0, 0.25, y) * smoothstep(1.0, 0.7, y) * step(0.35, h);
 }
 
 vec3 TraceSSR(vec3 C, vec3 R, float dist, out float hit){
@@ -497,17 +517,36 @@ void main(){
     // --- wet world: puddles, ripples, darkening
     float up = smoothstep(0.78, 0.96, N.z);
     float wet = uW.x * up;
-    float puddle = smoothstep(0.48, 0.62, Fbm(W.xy * 0.12)) * wet * uW.y;
+    // 1.6.2 [MudPuddles]: puddles grow with the wetness and shrink as the roads dry (CWeather::WetRoads), every patch has its own size,
+    //   some are clear water, some muddy brown with a dark soaked rim. Roads, sidewalks and roofs all face up, so all of them get puddles.
+    float puddle = 0.0, mudK = 0.0;
+    if (wet > 0.01) {
+      float pv = (Fbm(W.xy * 0.035 + 17.3) - 0.5) * uMud.y * 0.5;            // big-scale variety: wide puddle fields next to dry patches
+      float pth = mix(0.66, 0.44, clamp(uW.x, 0.0, 1.0)) - pv;
+      float pn = Fbm(W.xy * 0.12) + (Fbm(W.xy * 0.6 + 3.7) - 0.5) * 0.12;    // ragged edges
+      puddle = smoothstep(pth, pth + 0.1, pn) * wet * uW.y;
+      mudK = uMud.x * smoothstep(0.3, 0.7, Fbm(W.xy * 0.05 + 5.1));     // where the water is muddy
+      float rim = smoothstep(pth - 0.08, pth, pn) * (1.0 - smoothstep(pth, pth + 0.1, pn)) * wet;
+      vec3 mudC = vec3(0.32, 0.24, 0.15) * (0.35 + Luma(col) * 0.9);
+      col = mix(col, col * vec3(0.72, 0.62, 0.5), rim * (0.35 + mudK * 0.4));  // soaked dark rim around every puddle
+      col = mix(col, mudC, puddle * mudK * 0.55);                              // murky brown water
+    }
     vec3 Nr = N;
     if (wet > 0.01 && uW.z > 0.0 && dist < 60.0) {
       vec2 rp = Ripples(W.xy, uCam.w) * uW.z * min(uOn.w * 1.5 + 0.2, 1.0);
       Nr = normalize(N + vec3(rp, 0.0) * (0.3 + puddle));
     }
     col *= 1.0 - wet * 0.25 - puddle * 0.2;
+    if (uMud.z > 0.0 && wet > 0.01 && uOn.w > 0.01 && dist < 40.0)          // drops hitting the surface
+      col += (Ambient(vec3(0.0, 0.0, 1.0)) * 0.6 + 0.08) * Splash(W.xy, uCam.w) * uMud.z * uOn.w * up * smoothstep(40.0, 15.0, dist) * 0.7;
+    if (uMud.w > 0.0 && uW.x > 0.01 && dist < 50.0 && abs(N.z) < 0.35) {     // water running down walls
+      float dr = Drips(W, N, uCam.w) * uMud.w * uW.x * smoothstep(50.0, 20.0, dist);
+      col = col * (1.0 - dr * 0.25) + Ambient(N) * dr * 0.12;
+    }
     // --- screen-space reflections
     float cosV = clamp(dot(-V, Nr), 0.0, 1.0);
     float fres = 0.04 + 0.96 * pow(1.0 - cosV, 5.0);
-    float refl = max(uA.w * smoothstep(0.93, 0.99, N.z) * 0.35, wet * 0.35 + puddle * 0.65) * uA.z;
+    float refl = max(uA.w * smoothstep(0.93, 0.99, N.z) * 0.35, wet * 0.35 + puddle * 0.65 * (1.0 - mudK * 0.45)) * uA.z;   // mud: duller mirror
     refl *= mix(fres, 1.0, puddle * 0.5) * 2.2;
     if (refl > 0.01 && dist < 160.0) {
       vec3 R = reflect(V, Nr);
@@ -926,6 +965,8 @@ uniform vec4 uK;      // autoBias, autoRange, tonemapNorm, frame
 uniform vec4 uGS;     // grade shadow tint
 uniform vec4 uGH;     // grade highlight tint, w = fxaa strength
 uniform vec4 uEN;     // enhance: clarity, (unused), denoise, radius px
+uniform vec4 uTM;     // 1.6.2 tone mapping: strength, contrast, saturation, white point
+uniform vec4 uP1; uniform vec4 uP2; uniform vec4 uP3; uniform vec4 uP4;   // 1.6.2 prod80 colour balance + Technicolor
 
 vec3 toLin(vec3 c){ return c*c; }                 // gamma 2.0 approximation: 1 MUL instead of pow()
 vec3 toGam(vec3 c){ return sqrt(max(c, vec3(0.0))); }
@@ -1067,7 +1108,12 @@ void main(){
   lin += toLin(flare(uv)) * (uD.z * 1.4);
 #endif
 #if TM_MODE > 0
-  lin = tonemap(lin) * uK.z;
+  {   // 1.6.2 [ToneMapping] menu settings: strength (blend with the plain clipped image), contrast around mid grey, saturation
+    vec3 pre = clamp(lin, 0.0, 1.0);
+    lin = mix(pre, tonemap(lin) * uK.z, uTM.x);
+    lin = 0.18 * pow(max(lin, vec3(0.0)) / 0.18, vec3(uTM.y));
+    lin = mix(vec3(dot(lin, vec3(0.2126, 0.7152, 0.0722))), lin, uTM.z);
+  }
 #else
   lin = clamp(lin, 0.0, 1.0);
 #endif
@@ -1091,6 +1137,28 @@ void main(){
 #ifdef FX_GAMMA
     col = pow(max(col, vec3(0.0)), vec3(1.0/uB.w));
 #endif
+  }
+#endif
+#ifdef FX_GRADE
+  // 1.6.2 prod80 ports (MIT, prod80-ReShade-Repository): PD80_04_Color_Balance (shadows / midtones / highlights shift, separation mode 0)
+  // and PD80_04_Technicolor (3 strip). uP1..3 rgb = shadow / mid / highlight shift, uP1.w = Technicolor saturation,
+  // uP4 = (Technicolor strength, colour balance on, colour strength, brightness). Off = one uniform compare each.
+  if (uP4.y > 0.0) {
+    vec3 c = clamp(col, 0.0, 1.0);
+    float pl = dot(c, vec3(0.333333, 0.333334, 0.333333));
+    vec3 ds = max(1.0 - c * 2.0, 0.0); ds = ds * ds * (3.0 - 2.0 * ds);
+    vec3 dh = max((c - 0.5) * 2.0, 0.0); dh = dh * dh * (3.0 - 2.0 * dh);
+    vec3 mids = clamp(1.0 - ds - dh, 0.0, 1.0);
+    col = clamp(c + c * (ds * uP1.rgb + mids * uP2.rgb) * (1.0 - c) + dh * (uP3.rgb * (1.0 - pl)), 0.0, 1.0);
+  }
+  if (uP4.x > 0.0) {
+    vec3 o = clamp(col, 0.0, 1.0);
+    vec3 tp = 1.0 - o;
+    vec3 t2 = o * tp.grg * tp.bbr;
+    tp = t2 * uP4.z; t2 *= uP4.w;
+    vec3 r = o - tp.yxy + t2 - tp.zzx;
+    r = mix(vec3(dot(r, vec3(0.212656, 0.715158, 0.072186))), r, uP1.w);
+    col = mix(o, r, uP4.x);
   }
 #endif
 #ifdef FX_LUT

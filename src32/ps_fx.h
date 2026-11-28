@@ -10,6 +10,7 @@ struct PSFrameInfo
     float sunX = 0.5f, sunY = 0.5f;       // screen UV of the sun
     float sunVis = 0.f;                   // 0 = off screen / below horizon
     unsigned camDepth = 0;                // 1.6.1: camera depth texture (Shadow_RenderCameraDepth), 0 = none
+    unsigned targetFbo = 0;               // 1.6.2: framebuffer the frame is read from / written to (in-frame: the game's scene target)
 };
 
 struct PSFxStats

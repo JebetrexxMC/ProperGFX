@@ -87,7 +87,17 @@ bool World_PatchVertexSource(unsigned flags, const char* src, std::string& out, 
     // normals and no directional light - v1.2 required both and therefore skipped nearly everything, so almost nothing could receive a shadow.
     static const char* kWP = "vec4 WorldPos = ObjMatrix * vec4(Position,1.0);";
     size_t wp = out.find(kWP);
-    if (wp == std::string::npos) return false;                                  // skinned variant (ObjMatrix * (vec4(Position,1.0) * BoneToLocal)) or unknown layout
+    // 1.6.2: other layouts (e.g. compressed positions "vec4 WorldPos = ObjMatrix * vec4(Position * ..., 1.0);") used to get no receiver at all.
+    //   Like Real Shadow Sun does, any shader that declares "vec4 WorldPos" in main() now gets the assignment at the END of main(),
+    //   where WorldPos (and WorldNormal) are in scope whatever the exact expression was.
+    bool atEnd = false;
+    if (wp == std::string::npos)
+    {
+        const size_t d = out.find("vec4 WorldPos =");
+        const size_t m0 = out.find("void main");
+        if (d == std::string::npos || m0 == std::string::npos || d < m0) return false;
+        wp = d; atEnd = true;
+    }
     // skinned shaders: the game sizes their Bones[%d] uniform array from the GPU's uniform limit, so even one extra mat4 could break the link
     if (out.find("Bones") != std::string::npos || out.find("BoneToLocal") != std::string::npos) return false;
     if (out.find("gl_Position = vec4(ReflPos.xy") != std::string::npos) return false;   // sphere-map pass without the flag
@@ -102,8 +112,18 @@ bool World_PatchVertexSource(unsigned flags, const char* src, std::string& out, 
     if (withNL && wn != std::string::npos && wn > wp) nl = kVtxNL;
 
     // insert from the back so the earlier offset stays valid
-    if (!nl.empty()) out.insert(wn + strlen(kWN), nl);
-    out.insert(wp + strlen(kWP), kVtxAssign);
+    if (atEnd)
+    {
+        const size_t e = out.rfind('}');
+        if (e == std::string::npos || e < wp) return false;
+        if (withNL && out.find("vec3 WorldNormal", wp) != std::string::npos) out.insert(e, std::string(kVtxAssign) + kVtxNL);
+        else out.insert(e, kVtxAssign);
+    }
+    else
+    {
+        if (!nl.empty()) out.insert(wn + strlen(kWN), nl);
+        out.insert(wp + strlen(kWP), kVtxAssign);
+    }
     size_t m = out.find("void main");
     if (m == std::string::npos) return false;
     out.insert(m, kVtxDecl);

@@ -495,6 +495,12 @@ void DrawFeatures(int page, PSSettings& s, const PSUIStatus& st)
         Combo("Tonemapper", &s.tonemap, PS_TonemapNames, PS_TonemapCount);
         SliderDN("HDR amount", &s.hdrAmount, 0.f, 1.f);
         SliderDN("Exposure (EV)", &s.exposure, -3.f, 3.f);
+                Sep("TONE MAPPING");
+        SliderF("Tone strength", &s.tmStrength, 0.f, 1.f);
+        SliderF("White point", &s.tmWhite, 0.5f, 8.f, "%.2f");
+        SliderF("Tone contrast", &s.tmContrast, 0.6f, 1.6f);
+        SliderF("Tone saturation", &s.tmSaturation, 0.f, 2.f);
+        Note("Tone strength 0 = plain clipped image, 1 = full curve. White point: the brightness that becomes pure white (higher = softer highlights). AgX and PBR Neutral are from Filament.");
         FeatureEnd();
     }
     if (FeatureBegin("AutoExposure - self-exposure", &s.autoExp))
@@ -519,6 +525,14 @@ void DrawFeatures(int page, PSSettings& s, const PSUIStatus& st)
     }
     if (page == P_SHADOWS) {
     Sep("SHADOWS");
+    if (FeatureBegin("SunShadows - the game's own shadows follow the sun", &s.sunShadowsOn))
+    {
+        SliderF("Length", &s.sunShadowLength, 0.5f, 2.5f);
+        SliderF("Width", &s.sunShadowWidth, 0.5f, 2.f);
+        Check("Long shadows at sunrise / sunset", &s.sunShadowLowLong);
+        Note("Turns the classic ped / car / object shadows toward the real sun position (CTimeCycle). Works on every GPU, also next to DynamicShadows.");
+        FeatureEnd();
+    }
     const bool shPrev = s.shadows;
     const bool shOpen = FeatureBegin("DynamicShadows - sun shadows (game clock + timecyc.dat)", &s.shadows);
     if (!shPrev && s.shadows) s.shadowRetry = true;      // switching shadows on also clears safe mode
@@ -617,6 +631,21 @@ void DrawFeatures(int page, PSSettings& s, const PSUIStatus& st)
         Note("Smooths flat noisy areas while keeping edges, then lifts local contrast in the midtones. Written for this mod and runs on any GPU - it is not NVIDIA DLSS, which needs an RTX card on Windows.");
         FeatureEnd();
     }
+    if (FeatureBegin("ColorBalance - prod80 shadows / midtones / highlights", &s.cbOn))
+    {
+        SliderF("Shadows red", &s.cbS[0], -1.f, 1.f); SliderF("Shadows green", &s.cbS[1], -1.f, 1.f); SliderF("Shadows blue", &s.cbS[2], -1.f, 1.f);
+        SliderF("Midtones red", &s.cbM[0], -1.f, 1.f); SliderF("Midtones green", &s.cbM[1], -1.f, 1.f); SliderF("Midtones blue", &s.cbM[2], -1.f, 1.f);
+        SliderF("Highlights red", &s.cbH[0], -1.f, 1.f); SliderF("Highlights green", &s.cbH[1], -1.f, 1.f); SliderF("Highlights blue", &s.cbH[2], -1.f, 1.f);
+        Note("Port of prod80's Color Balance (MIT). Needs ColorGrading on. Default: teal shadows, warm highlights.");
+        FeatureEnd();
+    }
+    if (FeatureBegin("Technicolor - prod80 3-strip film look", &s.techOn))
+    {
+        SliderF("Strength", &s.techStrength, 0.f, 1.f); SliderF("Colour strength", &s.techColor, 0.f, 1.f);
+        SliderF("Brightness", &s.techBright, 0.5f, 1.5f); SliderF("Saturation", &s.techSat, 0.f, 1.5f);
+        Note("Port of prod80's Technicolor 3 strip (MIT). Needs ColorGrading on.");
+        FeatureEnd();
+    }
     if (FeatureBegin("PerformanceOverlay - FPS, 1% low, frame-time graph", &s.perfOverlay, true))
     {
         { static const char* corners[] = { "Top left", "Top right", "Bottom left", "Bottom right" }; Combo("Corner", &s.perfCorner, corners, 4); }
@@ -633,6 +662,9 @@ void DrawFeatures(int page, PSSettings& s, const PSUIStatus& st)
     if (FeatureBegin("WorldRain - puddles & ripples", &s.rainSurfOn))
     {
         SliderF("Puddles", &s.puddles, 0.f, 1.f); SliderF("Ripples", &s.ripples, 0.f, 1.f);
+        Check("Mud water + splashes + drips", &s.mudOn);
+        if (s.mudOn) { SliderF("Mud", &s.mudAmount, 0.f, 1.f); SliderF("Puddle variety", &s.puddleVariety, 0.f, 1.f);
+                       SliderF("Rain splashes", &s.splashes, 0.f, 1.f); SliderF("Wall drips", &s.drips, 0.f, 1.f); }
         Note("Deferred pass: flat upward surfaces collect puddles with rain ripples while it rains (CWeather::WetRoads). The SSR pass reflects in them.");
         FeatureEnd();
     }

@@ -295,6 +295,8 @@ void Deferred_AfterScene(const PSSettings& s, int level)
             S4(p, "uSunC", e.sun[0], e.sun[1], e.sun[2], (s.contactOn && level < 2) ? s.contactStrength * (c.mapOk ? 1.f : 0.6f) : 0.f);
             S4(p, "uA", (aoOk && s.aoMode == AO_SSGI) ? s.giStrength : 0.f, s.contactLength, s.ssrOn && level < 2 ? s.ssrStrength : 0.f, s.ssrDry);
             S4(p, "uW", wet, s.puddles, s.ripples, s.causticsOn ? s.causticsStrength : 0.f);
+            {   const bool m = s.mudOn && s.rainSurfOn;
+                S4(p, "uMud", m ? s.mudAmount : 0.f, m ? s.puddleVariety : 0.f, m ? s.splashes : 0.f, m ? s.drips : 0.f); }
             S4(p, "uS", s.pbrSkyOn ? s.pbrSkyBlend : 0.f, s.cloudCoverage, s.cloudsOn ? s.cloudDensity : 0.f, s.auroraOn ? s.auroraStrength : 0.f);
             S4(p, "uS2", s.cloudSpeed, D.f.night, s.rainFallOn ? s.rainFall : 0.f, D.f.underwater);
             S4(p, "uOn", volOk ? 1.f : 0.f, level >= 1 ? 10.f : 18.f, aoOk ? 1.f : 0.f, fminf(fmaxf(D.f.rain, 0.f), 1.f));

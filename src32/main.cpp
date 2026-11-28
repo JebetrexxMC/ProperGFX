@@ -1,4 +1,4 @@
-// TyFMCGFX (v1.6.1, 32-bit source tree: C++/H only, AML + SAUtils) - AML mod for GTA San Andreas Android (2.00 armeabi-v7a / 2.10 arm64-v8a)
+// TyFMCGFX (v1.6.2, 32-bit source tree: C++/H only, AML + SAUtils) - AML mod for GTA San Andreas Android (2.00 armeabi-v7a / 2.10 arm64-v8a)
 // Everything is hooked by exported symbol name, so one source tree serves both builds.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
@@ -17,7 +17,9 @@
 #include "ps_world.h"
 #include "ps_replay_guard.h"
 #include "ps_shadow.h"
+#include "ps_rq.h"
 #include "ps_log.h"
+#include "ps_sunshadow.h"
 #include "ps_lut.h"
 #include "sautils/isautils.h"
 #include <dirent.h>
@@ -39,7 +41,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.tyfmcgfx.mobile, TyFMCGFX, 1.6.1, TyFMC)
+MYMOD(net.tyfmcgfx.mobile, TyFMCGFX, 1.6.2, TyFMC)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -63,6 +65,10 @@ static bool*  g_pCodePause = nullptr;        // CTimer::m_CodePause (main menu /
 static std::atomic<unsigned> g_sceneCalls{0};
 static unsigned g_sceneSeen = 0; static int g_noSceneFrames = 1000;
 static bool g_inGame = false, g_sceneHooked = false;
+// 1.6.2 HUD fix: post effects run in-frame (render-queue event before CPostEffects::MobileRender), so the HUD, radar, text and menus
+// are drawn AFTER them and are never graded. g_eventFxMiss counts gameplay frames without the event (-> swap-time fallback).
+static bool g_postHooked = false; static std::atomic<bool> g_sceneThisFrame{false}, g_fxThisFrame{false}; static int g_eventFxMiss = 0;
+static int g_sw = 0, g_sh = 0; static double g_fxAccum = 0.0;
 static pthread_t g_renderThread; static bool g_haveRenderThread = false;
 static void FlushPendingBufferWrites();
 static char g_dir[512] = "";
@@ -180,7 +186,13 @@ static void OnFrame()
     PSFrameInfo fi; fi.w = w; fi.h = h; fi.time = (float)fmod(accum, 3600.0); fi.dt = dt;
     float uw = g_pUnderWater ? *g_pUnderWater : 0.f; fi.underwater = uw < 0.f ? 0.f : (uw > 1.f ? 1.f : uw);
     fi.sunVis = ComputeSun(fi.sunX, fi.sunY);
-    if (g_inGame && g_cfg.enabled && g_cfg.postFx && !FX_Failed()) { fi.camDepth = Shadow_RenderCameraDepth(w, h); FX_Render(g_cfg, fi); }
+    g_sw = w; g_sh = h; g_fxAccum = accum;
+    {   // 1.6.2: normally the effects already ran inside the frame (OnRqEvent), under the HUD. Swap-time only when the events do not work.
+        if (g_inGame && g_fxThisFrame) g_eventFxMiss = 0; else if (g_inGame && g_eventFxMiss < 1000) ++g_eventFxMiss;
+        const bool fallback = !g_postHooked || !RQ32_Ready() || g_eventFxMiss > 30;
+        if (fallback && g_inGame && g_cfg.enabled && g_cfg.postFx && !FX_Failed()) { fi.targetFbo = 0; fi.camDepth = Shadow_RenderCameraDepth(w, h); FX_Render(g_cfg, fi); }
+        g_fxThisFrame = false; g_sceneThisFrame = false;
+    }
 
     PSUIStatus st; st.dir = g_dir; st.fxStatus = FX_Status(); st.gameInfo = PS_GAME_INFO; st.patchedShaders = World_PatchedCount();
     st.sunTracked = g_sunTracked; st.lutLoaded = FX_LutLoaded(); st.fx = &FX_Stats();
@@ -274,10 +286,53 @@ DECL_HOOKi(RQ_Command_rqDrawIndexed, char** ptr)
     return r;
 }
 
+// 1.6.2: render thread, between the game's own commands. AFTER_SCENE = the world of this frame is drawn; POST = CPostEffects::MobileRender
+// is about to run: the world (+ its sky, water, particles) is finished and nothing 2D is drawn yet -> TyFMCGFX's effects go here.
+static void OnRqEvent(int ev)
+{
+    if (g_ctx == EGL_NO_CONTEXT || eglGetCurrentContext() != g_ctx) return;
+    if (ev == PSRQ_AFTER_SCENE) { g_sceneThisFrame = true; return; }
+    if (ev != PSRQ_POST || !g_sceneThisFrame || g_fxThisFrame) return;          // menus / loading screens: no world this frame
+    if (!(g_inGame && g_cfg.enabled && g_cfg.postFx && !FX_Failed())) return;
+    PSGLState gs; gs.Save();
+    GLint fb = 0; glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fb);
+    int w = g_sw, h = g_sh;
+    if (fb != 0) { GLint vp[4] = {0, 0, 0, 0}; glGetIntegerv(GL_VIEWPORT, vp); if (vp[2] >= 16 && vp[3] >= 16) { w = vp[2]; h = vp[3]; } }
+    if (w >= 16 && h >= 16)
+    {
+        static auto last = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
+        float d = std::chrono::duration<float>(now - last).count(); last = now;
+        if (d > 0.25f) d = 0.25f; if (d < 0.0005f) d = 0.0005f;
+        PSFrameInfo fi; fi.w = w; fi.h = h; fi.time = (float)fmod(g_fxAccum, 3600.0); fi.dt = d;
+        float uw = g_pUnderWater ? *g_pUnderWater : 0.f; fi.underwater = uw < 0.f ? 0.f : (uw > 1.f ? 1.f : uw);
+        fi.sunVis = ComputeSun(fi.sunX, fi.sunY);
+        fi.camDepth = Shadow_RenderCameraDepth(w, h);
+        fi.targetFbo = (unsigned)fb;
+        if (FX_Render(g_cfg, fi)) g_fxThisFrame = true;
+    }
+    gs.Restore();
+    World_OnShaderSelected();
+}
+
+DECL_HOOKv(CPostEffects_MobileRender)
+{
+    RQ32_Post(PSRQ_POST);
+    CPostEffects_MobileRender();
+}
+
+// 1.6.2 [SunShadows]: game thread, once per frame - the time cycle has just written this frame's shadow vectors
+DECL_HOOKv(CTimeCycle_Update)
+{
+    CTimeCycle_Update();
+    if (g_cfg.enabled && g_cfg.sunShadowsOn) pssun::Apply(g_pVectorToSun, g_pSunIndex, g_cfg.sunShadowLength, g_cfg.sunShadowWidth, g_cfg.sunShadowLowLong);
+}
+
 DECL_HOOKv(RenderScene, bool b)
 {
     g_sceneCalls.fetch_add(1, std::memory_order_relaxed);   // gameplay detection (see OnFrame)
     RenderScene(b);
+    RQ32_Post(PSRQ_AFTER_SCENE);
 }
 
 // ---------------------------------------------------------------- 1.4.6 GOT hooks on libGTASA's GL buffer imports
@@ -529,6 +584,12 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     SET_TO(g_pUnderWater,  aml->GetSym(hGame, "_ZN8CWeather14UnderWaternessE"));
     SET_TO(g_pVectorToSun, aml->GetSym(hGame, "_ZN10CTimeCycle13m_VectorToSunE"));
     SET_TO(g_pSunIndex,    aml->GetSym(hGame, "_ZN10CTimeCycle20m_CurrentStoredValueE"));
+    {   // 1.6.2 [SunShadows]
+        static void* s_hG; s_hG = hGame;
+        const bool ok = pssun::Init([](const char* n) -> void* { return (void*)aml->GetSym(s_hG, n); });
+        if (ok && g_pVectorToSun && g_pSunIndex && aml->GetSym(hGame, "_ZN10CTimeCycle6UpdateEv")) { HOOKSYM(CTimeCycle_Update, hGame, "_ZN10CTimeCycle6UpdateEv"); }
+        PS_FileLog("SunShadows: %s", ok ? "game shadow vectors found - they follow the sun" : "shadow vector symbols not in this game build - off");
+    }
     SET_TO(g_pCamera,      aml->GetSym(hGame, "TheCamera"));
     SET_TO(g_pFov,         aml->GetSym(hGame, "_ZN5CDraw7ms_fFOVE"));
     SET_TO(g_pAspect,      aml->GetSym(hGame, "_ZN5CDraw15ms_fAspectRatioE"));
@@ -544,6 +605,13 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     Shadow_SetAlphaTestState((const int*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE7curFunc"),
                              (const float*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE6curVal"));
     if (aml->GetSym(hGame, "_Z11RenderSceneb")) { HOOKSYM(RenderScene, hGame, "_Z11RenderSceneb"); g_sceneHooked = true; }
+    {   // 1.6.2 HUD fix: in-frame post effects (see OnRqEvent / ps_rq.h)
+        static void* s_hGame; s_hGame = hGame;
+        RQ32_SetHandler(OnRqEvent);
+        if (g_sceneHooked && RQ32_Init([](const char* n) -> void* { return (void*)aml->GetSym(s_hGame, n); }) && aml->GetSym(hGame, "_ZN12CPostEffects12MobileRenderEv"))
+        { HOOKSYM(CPostEffects_MobileRender, hGame, "_ZN12CPostEffects12MobileRenderEv"); g_postHooked = true; }
+        PS_FileLog("post effects: %s", g_postHooked ? "in-frame before CPostEffects::MobileRender (HUD / menus untouched) if the render queue checks pass" : "swap-time (render-queue symbols missing)");
+    }
     SetupBufferHooks();
     HOOKSYM(OS_ScreenSwapBuffers,     hGame, "_Z20OS_ScreenSwapBuffersv");
     HOOKSYM(AND_TouchEvent,           hGame, "_Z14AND_TouchEventiiii");

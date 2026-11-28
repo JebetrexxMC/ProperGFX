@@ -85,6 +85,7 @@ struct ShadowState
     float cam[3] = {0, 0, 0}, dir[3] = {0, 0, 1}; bool haveCam = false, haveDir = false;
     // sun smoothing
     float sun[3] = {0, 0, 1}; bool haveSun = false;
+    float sunUsed[3] = {0, 0, 1}; bool haveSunUsed = false; int sunMiss = 0;   // 1.6.2 flicker fix: stepped light direction + hold on a missing sun
     float hint[3] = {0, 0, 1}; bool hintValid = false;      // game's CTimeCycle sun vector (set by main.cpp every frame)
     float tcMul = 1.f; bool tcValid = false;
     int   logTick = 0;
@@ -333,7 +334,7 @@ void Commit()
 // Preferred source: the game's own CTimeCycle sun vector (the one the sun disc / coronas use). Fallback: the directional-light uniform.
 bool UpdateSun()
 {
-    float L[3]; int srcUsed = 0;
+    float L[3]; int srcUsed = 0; bool held = false;
     {
         const bool hintOk = G.hintValid && Dot3(G.hint, G.hint) > 0.7f && Dot3(G.hint, G.hint) < 1.35f;
         const bool lightOk = G.haveDir && Dot3(G.dir, G.dir) > 0.25f;
@@ -342,8 +343,12 @@ bool UpdateSun()
         else if ((want == 0 || want == 2) && lightOk) { memcpy(L, G.dir, sizeof(L)); srcUsed = 2; }
         else if (hintOk)                              { memcpy(L, G.hint, sizeof(L)); srcUsed = 1; }
         else if (lightOk)                             { memcpy(L, G.dir, sizeof(L)); srcUsed = 2; }
+        // 1.6.2: a single frame without a sun vector used to switch the shadows off for that frame (= flicker): keep the last one for a while
+        else if (G.haveSun && G.sunMiss < 90) { memcpy(L, G.sun, sizeof(L)); srcUsed = G.stats.sunSource; ++G.sunMiss; held = true; }
         else { G.fade = 0.f; G.stats.fade = 0.f; Note("no sun direction available (night / interior / symbols missing)"); return false; }
+
     }
+    if (!held) G.sunMiss = 0;
     G.stats.sunSource = srcUsed;
     float len = sqrtf(Dot3(L, L));
     if (len < 0.5f) { G.fade = 0.f; G.stats.fade = 0.f; Note("no directional light (night / interior)"); return false; }
@@ -355,6 +360,10 @@ bool UpdateSun()
         for (int i = 0; i < 3; ++i) G.sun[i] += (L[i] - G.sun[i]) * k;
         Norm3(G.sun);
     }
+    // 1.6.2 flicker fix: the smoothed sun moves a tiny bit EVERY frame (game clock), which rotated the light matrix every frame -
+    //   the texel snapping only works for a fixed rotation, so shadow edges crawled / flickered. The matrix now uses a direction that
+    //   only steps when the sun has moved by more than 0.4 degrees (a few seconds of game time).
+    if (!G.haveSunUsed || Dot3(G.sun, G.sunUsed) < 0.999976f) { memcpy(G.sunUsed, G.sun, sizeof(G.sun)); G.haveSunUsed = true; }
     const float elev = G.sun[2];
     G.stats.sunElevation = elev;
     memcpy(G.stats.sunDir, G.sun, sizeof(G.sun));
@@ -643,7 +652,7 @@ void DefRenderCascades()
         if (c == 3 && D.mapReady[3] && (D.captures & 3) != 3) continue;
         const float R = radii[c];
         float vp[16];
-        Shadow_BuildLightMatrix(G.sun, G.cam, R, kDefDepth, res, vp);
+        Shadow_BuildLightMatrix(G.sunUsed, G.cam, R, kDefDepth, res, vp);
         glBindFramebuffer(GL_FRAMEBUFFER, D.mapFbo[c]);
         glViewport(0, 0, res, res);
         glClear(GL_DEPTH_BUFFER_BIT);

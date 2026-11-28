@@ -1,4 +1,4 @@
-// TyFMCGFX (v1.6.1, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
+// TyFMCGFX (v1.6.2, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
 // Every shader is a .glsl file of the source tree (shaders/{vertex,fragment}, SAShaderL-style layout and uniforms) compiled INTO the .so, see ps_glsl.h.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
@@ -21,6 +21,7 @@
 #include "ps_shadow.h"
 #include "ps_scene.h"
 #include "ps_log.h"
+#include "ps_sunshadow.h"
 #include "ps_lut.h"
 #include "ps_glsl.h"
 #include "ps_deferred.h"
@@ -44,7 +45,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.tyfmcgfx.mobile, TyFMCGFX, 1.6.1, TyFMC)
+MYMOD(net.tyfmcgfx.mobile, TyFMCGFX, 1.6.2, TyFMC)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -229,6 +230,7 @@ static void OnFrame()
     // 1.5.0: the deferred lighting and the in-frame post effects need the render-queue events + the frame's camera even with shadows off
     Shadow_SetCameraService(g_cfg.enabled && (Deferred_Wanted(g_cfg) || g_cfg.postFx));
     Shadow_Configure(g_cfg, FX_Stats().adaptiveLevel);
+    Scene_SetPostWanted(g_cfg.enabled && g_cfg.postFx);    // 1.6.2: in-frame effects (under the HUD) even with shadows off
     {   // deferred lighting inputs for the next frame (time, weather, sun, the player's headlights)
         PSDeferredFrame df;
         df.time = (float)fmod(accum, 3600.0); df.dt = dt; df.night = nf;
@@ -475,6 +477,13 @@ DECL_HOOKv(CPostEffects_MobileRender)
 {
     Scene_PostEvent(PS_EV_POST);
     CPostEffects_MobileRender();
+}
+
+// 1.6.2 [SunShadows]: game thread, once per frame - the time cycle has just written this frame's shadow vectors
+DECL_HOOKv(CTimeCycle_Update)
+{
+    CTimeCycle_Update();
+    if (g_cfg.enabled && g_cfg.sunShadowsOn) pssun::Apply(g_pVectorToSun, g_pSunIndex, g_cfg.sunShadowLength, g_cfg.sunShadowWidth, g_cfg.sunShadowLowLong);
 }
 
 DECL_HOOKv(RenderScene, bool b)
@@ -862,6 +871,12 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     SET_TO(g_pUnderWater,  aml->GetSym(hGame, "_ZN8CWeather14UnderWaternessE"));
     SET_TO(g_pVectorToSun, aml->GetSym(hGame, "_ZN10CTimeCycle13m_VectorToSunE"));
     SET_TO(g_pSunIndex,    aml->GetSym(hGame, "_ZN10CTimeCycle20m_CurrentStoredValueE"));
+    {   // 1.6.2 [SunShadows]
+        static void* s_hG; s_hG = hGame;
+        const bool ok = pssun::Init([](const char* n) -> void* { return (void*)aml->GetSym(s_hG, n); });
+        if (ok && g_pVectorToSun && g_pSunIndex && aml->GetSym(hGame, "_ZN10CTimeCycle6UpdateEv")) { HOOKSYM(CTimeCycle_Update, hGame, "_ZN10CTimeCycle6UpdateEv"); }
+        PS_FileLog("SunShadows: %s", ok ? "game shadow vectors found - they follow the sun" : "shadow vector symbols not in this game build - off");
+    }
     SET_TO(g_pCamera,      aml->GetSym(hGame, "TheCamera"));
     SET_TO(g_pFov,         aml->GetSym(hGame, "_ZN5CDraw7ms_fFOVE"));
     SET_TO(g_pAspect,      aml->GetSym(hGame, "_ZN5CDraw15ms_fAspectRatioE"));
