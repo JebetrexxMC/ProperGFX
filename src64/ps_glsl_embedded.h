@@ -180,21 +180,26 @@ void main(){
 }
 )PGFXGLSL" },
   { "fragment/def_coc.glsl", R"PGFXGLSL(#version 300 es
-// TyFMCGFX 1.5.0 [DepthOfField] Mode = Adaptive: circle of confusion per pixel (quarter resolution) from the scene depth and the
-// auto-focus distance. r = blur amount 0..1, read by fragment/dof.glsl (uCoc).
+// TyFMCGFX 1.6.1 [DepthOfField] Mode = Real depth: circle of confusion per pixel (quarter resolution) from the scene depth, thin-lens style:
+// blur grows with |z - focus| / z (like a camera lens), with a sharp zone around the focus distance.
+// r = blur of this pixel 0..1 (near or far), g = NEAR blur only (foreground that spills over sharp things behind it). Read by fragment/dof.glsl (uCoc).
 #pragma include "def_common.glsl"
-uniform mediump sampler2D uFocus;   // unit 1: 1x1 focus
-uniform highp vec4 uP;              // x focus range (m, sharp zone), y transition scale, z near blur, w far blur
+uniform mediump sampler2D uFocus;   // unit 1: 1x1 focus (auto focus)
+uniform highp vec4 uP;              // x sharp zone (m), y (unused, 1), z near blur, w far blur
+uniform highp vec4 uQ;              // x manual focus distance in metres (0 = auto focus), y aperture (blur scale)
 out vec4 oColor;
 float Dec(vec4 c){ return exp2((c.r * 255.0 * 256.0 + c.g * 255.0) / 65535.0 * 11.0) - 1.0; }
 void main(){
-  float f = Dec(texture(uFocus, vec2(0.5)));
+  float f = uQ.x > 0.05 ? uQ.x : Dec(texture(uFocus, vec2(0.5)));
+  f = max(f, 0.3);
   float d = texture(uDepth, vUV).r;
-  float z = d >= 0.99999 ? 3000.0 : LinDepth(d);
-  float range = uP.x + f * 0.25;
-  float c = (z - f) / (range * uP.y + 1.0);
-  float coc = c < 0.0 ? clamp(-c * uP.z, 0.0, 1.0) : clamp((c - 1.0) * uP.w, 0.0, 1.0);
-  oColor = vec4(coc, 0.0, 0.0, 1.0);
+  float z = d >= 0.99999 ? 3000.0 : max(LinDepth(d), 0.05);
+  float zone = uP.x + f * 0.15;                                   // depth of the sharp zone in metres
+  float far  = max(z - f - zone, 0.0) / max(z, 0.1);             // 0 .. ~1 for the far field
+  float near = max(f - zone * 0.5 - z, 0.0) / max(z, 0.1);       // 0 .. large for close objects
+  float cf = clamp(far  * uP.w * uQ.y * 2.2, 0.0, 1.0);
+  float cn = clamp(near * uP.z * uQ.y * 1.4, 0.0, 1.0);
+  oColor = vec4(max(cf, cn), cn, 0.0, 1.0);
 }
 )PGFXGLSL" },
   { "fragment/def_common.glsl", R"PGFXGLSL(// TyFMCGFX 1.5.0 deferred screen-space lighting - shared helpers (pasted by "#pragma include", GLSL ES 3.00).
@@ -698,6 +703,24 @@ uniform mediump sampler2D uHist;    // unit 2: history
 uniform highp mat4 uReproj;         // ndc now -> clip of the previous frame
 uniform highp vec4 uP;              // x blend (history weight), y reset
 out vec4 oColor;
+// 1.6.1: history fetched with a 9-tap Catmull-Rom filter instead of one bilinear tap, so a held surface stops getting softer
+// every frame. Technique as used in dlss5-video-player's temporal stability pass (MIT, see THIRD_PARTY_NOTICES.md).
+vec3 histCR(highp vec2 uv){
+  highp vec2 size = uRes.xy;
+  highp vec2 pos = uv * size;
+  highp vec2 o = floor(pos - 0.5) + 0.5;
+  highp vec2 f = pos - o;
+  highp vec2 w0 = f*(-0.5 + f*(1.0 - 0.5*f));
+  highp vec2 w1 = 1.0 + f*f*(-2.5 + 1.5*f);
+  highp vec2 w2 = f*(0.5 + f*(2.0 - 1.5*f));
+  highp vec2 w3 = f*f*(-0.5 + 0.5*f);
+  highp vec2 w12 = w1 + w2;
+  highp vec2 t0 = (o - 1.0)/size, t3 = (o + 2.0)/size, t12 = (o + w2/w12)/size;
+  vec3 c = texture(uHist, vec2(t0.x, t0.y)).rgb*(w0.x*w0.y) + texture(uHist, vec2(t12.x, t0.y)).rgb*(w12.x*w0.y) + texture(uHist, vec2(t3.x, t0.y)).rgb*(w3.x*w0.y)
+         + texture(uHist, vec2(t0.x, t12.y)).rgb*(w0.x*w12.y) + texture(uHist, vec2(t12.x, t12.y)).rgb*(w12.x*w12.y) + texture(uHist, vec2(t3.x, t12.y)).rgb*(w3.x*w12.y)
+         + texture(uHist, vec2(t0.x, t3.y)).rgb*(w0.x*w3.y) + texture(uHist, vec2(t12.x, t3.y)).rgb*(w12.x*w3.y) + texture(uHist, vec2(t3.x, t3.y)).rgb*(w3.x*w3.y);
+  return max(c, vec3(0.0));
+}
 void main(){
   vec4 c = texture(uCur, vUV);
   if (uP.y > 0.5) { oColor = c; return; }
@@ -713,7 +736,7 @@ void main(){
   }
   m1 /= 9.0; vec3 sd = sqrt(max(m2 / 9.0 - m1 * m1, 0.0));
   mn = max(mn, m1 - sd * 1.25); mx = min(mx, m1 + sd * 1.25);
-  vec3 h = texture(uHist, puv).rgb;
+  vec3 h = histCR(puv);
   h = clamp(h, mn, mx);
   float w = uP.x;
   if (puv.x < 0.0 || puv.y < 0.0 || puv.x > 1.0 || puv.y > 1.0) w = 0.0;
@@ -792,36 +815,36 @@ void main(){
   oColor = vec4(ins, T);
 }
 )PGFXGLSL" },
-  { "fragment/dof.glsl", R"PGFXGLSL(// [DepthOfField] GTA SA Mobile has no readable depth buffer, so focus is a screen region:
-//   Mode 0 = Tilt-shift  (sharp horizontal band at Focus position, blur above / below - miniature look)
-//   Mode 1 = Center focus (sharp circle around the screen point (0.5, Focus), blur toward the edges - like a lens focused on what you look at)
-//   Mode 2 = Adaptive (1.5.0): real depth of field from the scene depth with auto focus (ps_deferred.cpp: def_focus + def_coc -> uCoc)
+  { "fragment/dof.glsl", R"PGFXGLSL(// [DepthOfField]
+//   Mode 2 = Real depth (1.6.1, default): a real depth of field from the scene depth. ps_deferred.cpp writes the circle of confusion
+//            (def_focus = auto focus, def_coc = near / far blur per pixel). Here: a 16-tap golden-angle disc gather from the FULL-res scene,
+//            every tap weighted by its OWN blur (scatter-as-gather) - a sharp object in front never smears into the blurred background,
+//            the blurred foreground spills over the sharp background like a real lens. Large blurs read the pre-blurred 1/8 copy (no ringing).
+//   Mode 0 = Tilt-shift  (screen band - a miniature look, not depth based)
+//   Mode 1 = Center focus (screen circle - not depth based)
 // Underwater (UnderWaterness > 0) adds an all-over blur ([DepthOfField] UnderwaterBlur).
 // uDof = 1/8-res blurred scene. uDofA = (mode, focus position, focus width, strength)  uDofB = (bokeh boost, radius, underwater blur, 0)
 uniform sampler2D uDof;
 uniform vec4 uDofA;
 uniform vec4 uDofB;
-uniform sampler2D uCoc;      // Adaptive: circle of confusion (r), black when the scene depth is not available
+uniform sampler2D uCoc;      // Real depth: r = blur, g = near blur (black when the scene depth is not available)
 
-float dofAmount(vec2 uv, vec2 res){
+float dofScreen(vec2 uv, vec2 res){
   float m;
   if (uDofA.x < 0.5) m = smoothstep(uDofA.z, uDofA.z + 0.28, abs(uv.y - uDofA.y));
-  else if (uDofA.x > 1.5) m = texture2D(uCoc, uv).r;
   else {
     vec2 d = (uv - vec2(0.5, uDofA.y)) * vec2(res.x / res.y, 1.0);
     m = smoothstep(uDofA.z, uDofA.z + 0.45, length(d));
   }
-  m *= uDofA.w;
-  m = max(m, clamp(UnderWaterness, 0.0, 1.0) * uDofB.z);
-  return clamp(m, 0.0, 1.0);
+  return m * uDofA.w;
 }
 
-// 7-tap disc gather from the blurred copy; bright taps weigh more -> round "bokeh" highlights
+// 7-tap disc gather from the blurred copy (screen modes / underwater)
 vec3 dofBlur(vec2 uv, vec2 px, float m){
   vec2 r = px * 8.0 * uDofB.y * m;
   vec3 acc = vec3(0.0); float wsum = 0.0;
   for (int i = 0; i < 7; i++) {
-    float a = float(i) * 0.8975979;                 // 2*pi/7
+    float a = float(i) * 0.8975979;
     vec2 o = (i == 0) ? vec2(0.0) : vec2(cos(a), sin(a)) * r;
     vec3 c = texture2D(uDof, uv + o).rgb;
     float l = lum3(c);
@@ -831,8 +854,45 @@ vec3 dofBlur(vec2 uv, vec2 px, float m){
   return acc / wsum;
 }
 
+vec3 dofDepth(vec3 col, vec2 uv, vec2 px, vec2 res){
+  float rmax = 12.0 * uDofB.y * (res.y / 720.0) * clamp(uDofA.w * 1.25, 0.0, 1.5);   // largest blur radius in pixels
+  vec2 c0 = texture2D(uCoc, uv).rg;
+  // near-field dilation: a blurred foreground edge grows over what is behind it
+  float nd = c0.g;
+  for (int k = 0; k < 4; k++) {
+    float a = float(k) * 1.5707963 + 0.785398;
+    nd = max(nd, texture2D(uCoc, uv + vec2(cos(a), sin(a)) * px * rmax * 0.6).g * 0.85);
+  }
+  float cc = max(c0.r, nd);
+  float rad = cc * rmax;
+  if (rad < 0.6) return col;
+  float big = clamp((rad - 9.0) / 10.0, 0.0, 1.0);           // large blur: the pre-blurred copy, no sparse-tap ringing
+  float rot = ign(gl_FragCoord.xy) * 6.2831853;
+  vec3 acc = col; float ws = 1.0;
+  for (int i = 1; i <= 16; i++) {
+    float fi = float(i);
+    float r = sqrt(fi / 16.0) * rad;
+    float a = fi * 2.3999632 + rot;                          // golden angle
+    vec2 tuv = uv + vec2(cos(a), sin(a)) * r * px;
+    vec3 c = big > 0.0 ? mix(texture2D(uScene, tuv).rgb, texture2D(uDof, tuv).rgb, big) : texture2D(uScene, tuv).rgb;
+    vec2 tc = texture2D(uCoc, tuv).rg;
+    float tr = max(tc.r, tc.g) * rmax;                       // how far this tap's own blur reaches
+    float w = clamp(tr - r + 1.5, 0.0, 1.0);                 // a sharp tap does not reach us -> no halo around in-focus edges
+    float l = lum3(c);
+    w *= 1.0 + uDofB.x * l * l * 4.0;                        // bokeh: bright out-of-focus highlights weigh more
+    acc += c * w; ws += w;
+  }
+  return mix(col, acc / ws, smoothstep(0.0, 0.12, cc));
+}
+
 vec3 applyDof(vec3 col, vec2 uv, vec2 px, vec2 res){
-  float m = dofAmount(uv, res);
+  float uw = clamp(UnderWaterness, 0.0, 1.0) * uDofB.z;
+  if (uDofA.x > 1.5) {
+    col = dofDepth(col, uv, px, res);
+    if (uw > 0.003) col = mix(col, dofBlur(uv, px, uw), uw);
+    return col;
+  }
+  float m = clamp(max(dofScreen(uv, res), uw), 0.0, 1.0);
   if (m < 0.003) return col;
   return mix(col, dofBlur(uv, px, m), m);
 }
@@ -849,7 +909,7 @@ void main(){
 )PGFXGLSL" },
   { "fragment/final.glsl", R"PGFXGLSL(// TyFMCGFX final composite. Compiled as a VARIANT per enabled-feature set: the mod puts "#define FX_xxx 1" lines and
 // "#define TM_MODE n" in front of this file, so every effect that is switched off is removed at compile time and costs nothing.
-// FX_AA FX_CA FX_CAS FX_DOF FX_OUTLINE FX_CEL FX_AUTOEXP FX_BLOOM FX_RAYS FX_FLARE FX_GLOW FX_GOLDEN FX_LUT FX_UNDER FX_VHS FX_VIGNETTE FX_GRAIN FX_DITHER FX_GRADE FX_GAMMA
+// FX_AA FX_CA FX_CAS FX_DOF FX_OUTLINE FX_CEL FX_AUTOEXP FX_BLOOM FX_RAYS FX_FLARE FX_GLOW FX_GOLDEN FX_LUT FX_UNDER FX_VHS FX_VIGNETTE FX_GRAIN FX_DITHER FX_GRADE FX_GAMMA FX_ENHANCE
 #pragma include "common.glsl"
 
 uniform sampler2D uScene; uniform sampler2D uBloom; uniform sampler2D uLum;
@@ -865,6 +925,7 @@ uniform vec4 uH;      // vhs, (unused), (unused), (unused)
 uniform vec4 uK;      // autoBias, autoRange, tonemapNorm, frame
 uniform vec4 uGS;     // grade shadow tint
 uniform vec4 uGH;     // grade highlight tint, w = fxaa strength
+uniform vec4 uEN;     // enhance: clarity, (unused), denoise, radius px
 
 vec3 toLin(vec3 c){ return c*c; }                 // gamma 2.0 approximation: 1 MUL instead of pow()
 vec3 toGam(vec3 c){ return sqrt(max(c, vec3(0.0))); }
@@ -931,6 +992,23 @@ void main(){
     float peak = -1.0 / mix(8.0, 5.0, clamp(uF.x, 0.0, 1.0));
     vec3 w = amp * peak;
     col = clamp(((b + d + f + h) * w + e) / (1.0 + 4.0*w), 0.0, 1.0);
+  }
+#endif
+
+#ifdef FX_ENHANCE   // TyFMCGFX Visual Enhance (written for this mod): edge-aware denoise + luminance clarity
+  {
+    vec2 r = px * uEN.w;
+    vec3 a0 = texture2D(uScene, suv + r*vec2( 1.0, 1.0)).rgb;
+    vec3 a1 = texture2D(uScene, suv + r*vec2(-1.0, 1.0)).rgb;
+    vec3 a2 = texture2D(uScene, suv + r*vec2( 1.0,-1.0)).rgb;
+    vec3 a3 = texture2D(uScene, suv + r*vec2(-1.0,-1.0)).rgb;
+    vec3 base = (a0 + a1 + a2 + a3) * 0.25;
+    float lc = lum3(col); float lb = lum3(base);
+    float dn = uEN.z * (1.0 - smoothstep(0.012, 0.05, abs(lc - lb)));   // only flat noisy areas, edges stay sharp
+    col = mix(col, base, dn * 0.5);
+    lc = lum3(col);
+    float dl = clamp(lc - lb, -0.10, 0.10) * uEN.x * (4.0 * lc * (1.0 - lc));
+    col = clamp(col * ((lc + dl) / max(lc, 0.002)), 0.0, 1.0);
   }
 #endif
 
@@ -1403,6 +1481,34 @@ vec3 tonemap(vec3 x){ x *= 0.7232; return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.5
 vec3 tonemap(vec3 x){ x = max(x*0.7203, vec3(0.0001)); return pow(x, vec3(1.6)) / (pow(x, vec3(1.5632))*1.07304 + 0.16742); }
 #elif TM_MODE == 3
 vec3 tonemap(vec3 x){ x *= 1.1998; return x*(1.0 + x/16.0)/(1.0 + x); }
+#elif TM_MODE == 4
+// AgX (Troy Sobotka's AgX, minimal fit). Ported from Google Filament's ToneMapper (Apache-2.0, see THIRD_PARTY_NOTICES.md)
+vec3 agxCurve(vec3 x){ vec3 x2 = x*x; vec3 x4 = x2*x2; return 15.5*x4*x2 - 40.14*x4*x + 31.96*x4 - 6.868*x2*x + 0.4298*x2 + 0.1191*x - 0.00232; }
+vec3 tonemap(vec3 c){
+  const mat3 agxIn  = mat3(0.842479062253094, 0.0423282422610123, 0.0423756549057051, 0.0784335999999992, 0.878468636469772, 0.0784336, 0.0792237451477643, 0.0791661274605434, 0.879142973793104);
+  const mat3 agxOut = mat3(1.19687900512017, -0.0528968517574562, -0.0529716355144438, -0.0980208811401368, 1.15190312990417, -0.0980434501171241, -0.0990297440797205, -0.0989611768448433, 1.15107367264116);
+  c = agxIn * (c * 0.62);
+  c = clamp(log2(max(c, vec3(1e-10))), -12.47393, 4.026069);
+  c = (c + 12.47393) / 16.5;
+  c = agxOut * agxCurve(c);
+  c = max(c, vec3(0.0));
+  return c * c;                                    // AgX output is display-encoded: back to the composite's linear (gamma 2.0)
+}
+#elif TM_MODE == 5
+// Khronos PBR Neutral. Ported from Google Filament's ToneMapper (Apache-2.0, see THIRD_PARTY_NOTICES.md)
+vec3 tonemap(vec3 c){
+  const float startC = 0.76; const float desat = 0.15;
+  float x = min(c.r, min(c.g, c.b));
+  float off = x < 0.08 ? x - 6.25*x*x : 0.04;
+  c -= off;
+  float peak = max(c.r, max(c.g, c.b));
+  if (peak < startC) return c;
+  const float d = 1.0 - startC;
+  float np = 1.0 - d*d / (peak + d - startC);
+  c *= np / peak;
+  float g = 1.0 - 1.0 / (desat * (peak - np) + 1.0);
+  return mix(c, vec3(np), g);
+}
 #endif
 )PGFXGLSL" },
   { "vertex/fullscreen.glsl", R"PGFXGLSL(// full-screen triangle for every post-process pass (attribute 0 = aPos)

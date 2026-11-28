@@ -1,4 +1,4 @@
-# TyFMCGFX 1.6.0 (AML mod for GTA San Andreas Android)
+# TyFMCGFX 1.6.1 (AML mod for GTA San Andreas Android)
 
 | Build | Game | ABI | File | Source tree | Shaders |
 |---|---|---|---|---|---|
@@ -14,6 +14,18 @@ Formerly *Proper GFX Mobile* (`libProperGFX32/64.so`, 1.4-1.5) and *Proper Shade
 3. Start the game. Everything lives in `files/TyFMCGFX/`; settings are `files/TyFMCGFX/TyFMCGFX.ini`, the log is `files/TyFMCGFX/tyfmcgfx_log.txt`.
 
 Upgrading: `files/ProperGFX/` (1.4-1.5) and `files/ProperShader/` (1.3) are moved to `files/TyFMCGFX/`, and `TYFMC.ProperGFX.ini` / `settings.ini` are renamed to `TyFMCGFX.ini` on the first launch (your settings are kept; nothing that already exists in the new folder is overwritten).
+
+## 1.6.1 - crash fix, real depth of field, GTA VI style, VisualEnhance
+* **Crash fix (both builds)**: 1.6.0 could crash on some Mali GPUs (SIGSEGV in `libGLES_mali` `memcpy` under `glDrawElements` while the shadow cascades replayed the frame). The replay re-issued draws whose index or vertex range no longer fit the buffers the game had since re-uploaded, and left extra vertex attributes enabled. New `common/ps_replay_guard.h` keeps a CPU copy of the 16-bit index buffers, checks every remembered draw's highest index against its vertex buffer before replaying it, skips draws it cannot prove safe, and turns off attributes 1-7 during the replay.
+* **Real depth of field (both builds)**: [DepthOfField] Mode 2 (new default) uses the scene depth instead of a screen blur. It computes a thin-lens circle of confusion (near and far), auto-focuses on the centre of the screen or a fixed FocusDistance, and has Aperture control. 64-bit: a 16-tap golden-angle bokeh gather from the full-res frame with near-field spreading. 32-bit: a new half-res camera depth pass replays this frame's world draws with the main camera, then a 12-tap bokeh blur. The 32-bit depth pass does not include peds. Old ini files are moved to Mode 2.
+* **GTA VI style look (both builds)**: a new Look preset built from what the public trailers show: soft ACES highlight roll-off, warm sun and teal shade, wide soft bloom, wet glossy roads, hazy sun shafts, crisp detail, gentle real DoF, 2x detail textures and VisualEnhance. These are not Rockstar's shaders, which have not been released.
+* **[DetailTextures] (both builds)**: realistic 2x texture mapping. Each world texture is sampled again at 2x tiling as luminance micro-detail, plus relief shading derived from the texture. It fades out with distance. Strength and Relief are adjustable.
+* **[VisualEnhance] (both builds)**: an edge-aware denoise followed by midtone luminance clarity, for a "DLSS 5-style" clean and crisp look on any phone GPU. It is an independent algorithm, not NVIDIA DLSS: DLSS 5, Streamline and the DLSS5 tools need an RTX GPU on Windows. Settings: Clarity, Denoise, Radius.
+* **New tonemappers (both builds)**: AgX and PBR Neutral, ported from Google Filament (Apache-2.0). Credits are in `THIRD_PARTY_NOTICES.md`.
+* **TAA (64-bit)**: the history is now read with a 9-tap Catmull-Rom filter, so still surfaces no longer soften over time. The technique comes from dlss5-video-player (MIT).
+* **[PerformanceOverlay] (both builds)**: a FrameScope / FrameX-style readout showing FPS, 1% low, average and worst frame time, a frame-time graph, CPU temperature and free RAM. It can sit in any corner and needs no root.
+* Not added: kernel / CPU governor tweaks (android-kernel-tweaker, RvKernel-Manager, arter97 kernels). They need root and a custom kernel, which a game mod cannot change. LibertyRecomp (GTA IV, GPL-3.0) code was not copied.
+* Tests: `tools/glsl_validate.py` now also compiles the 32-bit final composite (640 variants including the new tonemappers / enhance). `host_variant_test` covers the new features.
 
 ## 1.6.0 - TyFMCGFX: ZyZGfx 2.0.7 night lighting, Firestorm green menu
 The new `libZyZGFX64.so` from **ZyZGfx 2.0.7** was compared against the old ZyZGFX64 build in Ghidra 12 (symbol / string diff + decompiled hooks). Its new modules were rebuilt here in our own code (64-bit only, GTA SA 2.10):

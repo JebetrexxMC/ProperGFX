@@ -5,13 +5,13 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define PS_VERSION     "1.6.0"
+#define PS_VERSION     "1.6.1"
 #define PS_DIR_NAME    "TyFMCGFX"               // files/TyFMCGFX (1.4-1.5: files/TyFMCGFX, 1.3 and older: files/ProperShader - moved automatically)
 #define PS_INI_NAME    "TyFMCGFX.ini"           // 1.4-1.5: TyFMCGFX.ini, 1.3 and older: settings.ini (renamed automatically)
 #define PS_BUTTON_HIDDEN_BELOW 0.06f            // 64-bit: anything below = 0 = invisible (an old 0.05 from the 32-bit range included)
 #define PS_BUTTON_MIN_OPACITY 0.0f              // 64-bit: Opacity 0 = button label, fill AND outline fully transparent (32-bit build keeps 0.05)
 
-enum PSTonemap { TM_OFF = 0, TM_ACES = 1, TM_TIMOTHY = 2, TM_REINHARD = 3 };
+enum PSTonemap { TM_OFF = 0, TM_ACES = 1, TM_TIMOTHY = 2, TM_REINHARD = 3, TM_AGX = 4, TM_NEUTRAL = 5 };
 enum PSQuality { Q_LOW = 0, Q_MEDIUM = 1, Q_HIGH = 2, Q_CUSTOM = 3, Q_ULTRA = 4 };   // 1.5: Ultra added after Custom (old ini values keep their meaning)
 enum PSAoMode { AO_SSAO = 0, AO_HBAO = 1, AO_SSGI = 2 };
 
@@ -80,7 +80,9 @@ struct PSSettings
     // ---- [DepthOfField] (tilt-shift, no depth buffer on mobile) ----
     bool  tiltShift    = false;
     float tiltFocus = 0.5f, tiltWidth = 0.22f, tiltStrength = 0.8f;
-    int   dofMode      = 0;          // 0 = tilt-shift band, 1 = center focus (circle)          (fragment/dof.glsl)
+    int   dofMode      = 2;          // 0 = tilt-shift band, 1 = center focus (circle), 2 = real depth (1.6.1 default)   (fragment/dof.glsl)
+    float dofFocusDist = 0.f;        // 1.6.1: manual focus distance in metres, 0 = auto focus (what is in the screen centre)
+    float dofAperture  = 1.0f;       // 1.6.1: lens aperture - more = shallower depth of field
     float dofBokeh     = 0.6f;       // bright out-of-focus taps weigh more -> round highlights
     float dofRadius    = 1.0f;       // blur radius multiplier
     float dofUnderwater = 0.5f;      // all-over blur while the camera is underwater (UnderWaterness)
@@ -100,6 +102,15 @@ struct PSSettings
     float specularMul  = 1.0f, reflectionMul = 1.0f;
     bool  wetWorld     = true;
     float wetStrength  = 1.0f;
+    bool  detailOn     = true;       // 1.6.1 [DetailTextures]: the diffuse texture again at 2x tiling as micro detail + relief shading
+    float detailStrength = 0.5f;
+    float detailRelief = 0.4f;
+    bool  enhance      = false;      // 1.6.1 [VisualEnhance]: edge-aware denoise + clarity (own algorithm, runs on any GPU)
+    float enhanceClarity = 0.45f;
+    float enhanceDenoise = 0.25f;
+    float enhanceRadius = 2.5f;
+    bool  perfOverlay  = false;      // 1.6.1 [PerformanceOverlay]: FPS, 1% low, frame-time graph, CPU temperature, free RAM
+    int   perfCorner   = 1;          // 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right
     bool  waterOn      = true;
     float waterDetail  = 1.0f;
     // ---- [ImprovedZFighting] ----
@@ -237,6 +248,7 @@ extern const char* const PS_ShadowMethodNames[]; extern const int PS_ShadowMetho
 // [LUT] Folders -> the directory LUT_Load searches (base = files/TyFMCGFX)
 void PS_LutDir(const PSSettings& s, const char* base, char* out, int n);
 extern const char* const PS_DofModeNames[];   extern const int PS_DofModeCount;
+extern const char* const PS_DofModeUiNames[];
 extern const char* const PS_AoModeNames[];    extern const int PS_AoModeCount;
 extern const char* const PS_QualityMenuNames[]; // Low / Medium / High / Ultra (slider order)
 int   PS_QualityToSlider(int q);                  // -1 = Custom

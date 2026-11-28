@@ -1,4 +1,4 @@
-# TyFMCGFX 1.6.0 (formerly Proper GFX Mobile): feature status
+# TyFMCGFX 1.6.1 (formerly Proper GFX Mobile): feature status
 
 The 1.5.0 deferred screen-space features (AO / GI, skylight, ambient, contact shadows, volumetrics, clouds, PBR sky, aurora, SSR, rain, caustics, TAA, FSR, depth DoF, 4 cascades + PCSS) are in the **64-bit** build (GTA SA 2.10, GLSL ES 3.00). The 32-bit build (2.00) gets the new menu style, the icon button and the menu fix.
 

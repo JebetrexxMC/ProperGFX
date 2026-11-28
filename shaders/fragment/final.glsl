@@ -1,6 +1,6 @@
 // TyFMCGFX final composite. Compiled as a VARIANT per enabled-feature set: the mod puts "#define FX_xxx 1" lines and
 // "#define TM_MODE n" in front of this file, so every effect that is switched off is removed at compile time and costs nothing.
-// FX_AA FX_CA FX_CAS FX_DOF FX_OUTLINE FX_CEL FX_AUTOEXP FX_BLOOM FX_RAYS FX_FLARE FX_GLOW FX_GOLDEN FX_LUT FX_UNDER FX_VHS FX_VIGNETTE FX_GRAIN FX_DITHER FX_GRADE FX_GAMMA
+// FX_AA FX_CA FX_CAS FX_DOF FX_OUTLINE FX_CEL FX_AUTOEXP FX_BLOOM FX_RAYS FX_FLARE FX_GLOW FX_GOLDEN FX_LUT FX_UNDER FX_VHS FX_VIGNETTE FX_GRAIN FX_DITHER FX_GRADE FX_GAMMA FX_ENHANCE
 #pragma include "common.glsl"
 
 uniform sampler2D uScene; uniform sampler2D uBloom; uniform sampler2D uLum;
@@ -16,6 +16,7 @@ uniform vec4 uH;      // vhs, (unused), (unused), (unused)
 uniform vec4 uK;      // autoBias, autoRange, tonemapNorm, frame
 uniform vec4 uGS;     // grade shadow tint
 uniform vec4 uGH;     // grade highlight tint, w = fxaa strength
+uniform vec4 uEN;     // enhance: clarity, (unused), denoise, radius px
 
 vec3 toLin(vec3 c){ return c*c; }                 // gamma 2.0 approximation: 1 MUL instead of pow()
 vec3 toGam(vec3 c){ return sqrt(max(c, vec3(0.0))); }
@@ -82,6 +83,23 @@ void main(){
     float peak = -1.0 / mix(8.0, 5.0, clamp(uF.x, 0.0, 1.0));
     vec3 w = amp * peak;
     col = clamp(((b + d + f + h) * w + e) / (1.0 + 4.0*w), 0.0, 1.0);
+  }
+#endif
+
+#ifdef FX_ENHANCE   // TyFMCGFX Visual Enhance (written for this mod): edge-aware denoise + luminance clarity
+  {
+    vec2 r = px * uEN.w;
+    vec3 a0 = texture2D(uScene, suv + r*vec2( 1.0, 1.0)).rgb;
+    vec3 a1 = texture2D(uScene, suv + r*vec2(-1.0, 1.0)).rgb;
+    vec3 a2 = texture2D(uScene, suv + r*vec2( 1.0,-1.0)).rgb;
+    vec3 a3 = texture2D(uScene, suv + r*vec2(-1.0,-1.0)).rgb;
+    vec3 base = (a0 + a1 + a2 + a3) * 0.25;
+    float lc = lum3(col); float lb = lum3(base);
+    float dn = uEN.z * (1.0 - smoothstep(0.012, 0.05, abs(lc - lb)));   // only flat noisy areas, edges stay sharp
+    col = mix(col, base, dn * 0.5);
+    lc = lum3(col);
+    float dl = clamp(lc - lb, -0.10, 0.10) * uEN.x * (4.0 * lc * (1.0 - lc));
+    col = clamp(col * ((lc + dl) / max(lc, 0.002)), 0.0, 1.0);
   }
 #endif
 

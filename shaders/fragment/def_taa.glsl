@@ -9,6 +9,24 @@ uniform mediump sampler2D uHist;    // unit 2: history
 uniform highp mat4 uReproj;         // ndc now -> clip of the previous frame
 uniform highp vec4 uP;              // x blend (history weight), y reset
 out vec4 oColor;
+// 1.6.1: history fetched with a 9-tap Catmull-Rom filter instead of one bilinear tap, so a held surface stops getting softer
+// every frame. Technique as used in dlss5-video-player's temporal stability pass (MIT, see THIRD_PARTY_NOTICES.md).
+vec3 histCR(highp vec2 uv){
+  highp vec2 size = uRes.xy;
+  highp vec2 pos = uv * size;
+  highp vec2 o = floor(pos - 0.5) + 0.5;
+  highp vec2 f = pos - o;
+  highp vec2 w0 = f*(-0.5 + f*(1.0 - 0.5*f));
+  highp vec2 w1 = 1.0 + f*f*(-2.5 + 1.5*f);
+  highp vec2 w2 = f*(0.5 + f*(2.0 - 1.5*f));
+  highp vec2 w3 = f*f*(-0.5 + 0.5*f);
+  highp vec2 w12 = w1 + w2;
+  highp vec2 t0 = (o - 1.0)/size, t3 = (o + 2.0)/size, t12 = (o + w2/w12)/size;
+  vec3 c = texture(uHist, vec2(t0.x, t0.y)).rgb*(w0.x*w0.y) + texture(uHist, vec2(t12.x, t0.y)).rgb*(w12.x*w0.y) + texture(uHist, vec2(t3.x, t0.y)).rgb*(w3.x*w0.y)
+         + texture(uHist, vec2(t0.x, t12.y)).rgb*(w0.x*w12.y) + texture(uHist, vec2(t12.x, t12.y)).rgb*(w12.x*w12.y) + texture(uHist, vec2(t3.x, t12.y)).rgb*(w3.x*w12.y)
+         + texture(uHist, vec2(t0.x, t3.y)).rgb*(w0.x*w3.y) + texture(uHist, vec2(t12.x, t3.y)).rgb*(w12.x*w3.y) + texture(uHist, vec2(t3.x, t3.y)).rgb*(w3.x*w3.y);
+  return max(c, vec3(0.0));
+}
 void main(){
   vec4 c = texture(uCur, vUV);
   if (uP.y > 0.5) { oColor = c; return; }
@@ -24,7 +42,7 @@ void main(){
   }
   m1 /= 9.0; vec3 sd = sqrt(max(m2 / 9.0 - m1 * m1, 0.0));
   mn = max(mn, m1 - sd * 1.25); mx = min(mx, m1 + sd * 1.25);
-  vec3 h = texture(uHist, puv).rgb;
+  vec3 h = histCR(puv);
   h = clamp(h, mn, mx);
   float w = uP.x;
   if (puv.x < 0.0 || puv.y < 0.0 || puv.x > 1.0 || puv.y > 1.0) w = 0.0;

@@ -1,4 +1,5 @@
 #include "ps_shadow.h"
+#include "ps_replay_guard.h"
 #include "ps_log.h"
 #include <GLES2/gl2ext.h>
 #include <math.h>
@@ -24,7 +25,7 @@ struct Attr  { GLint size = 0, type = 0, norm = 0, stride = 0; uintptr_t ptr = 0
 struct VAttr { Attr pos, uv; bool ok = false; };
 // 1.4.6: alphaRef = alpha-test threshold (0 = solid), *Gen = buffer generation at capture (bumped by the game's glBufferData / SubData / Delete)
 struct Draw  { GLuint ibo = 0, tex = 0; GLenum mode = GL_TRIANGLES; GLsizei count = 0; uintptr_t off = 0; Attr pos, uv; float obj[16]; GLint fbo = 0;
-               float alphaRef = 0.f; uint32_t vboGen = 0, iboGen = 0, uvGen = 0; bool cacheable = false; };
+               float alphaRef = 0.f; uint32_t vboGen = 0, iboGen = 0, uvGen = 0; int maxIdx = -1; bool cacheable = false; };
 // A shadow caster remembered across frames. The game only draws what is in view, so a building behind you would stop casting into the view the moment you turn;
 // anything seen at the same place in two capture frames is treated as static and keeps casting while it is out of view.
 struct CEntry { Draw d; uint64_t key = 0; double seen = 0; int hits = 0, miss = 0; uint32_t seenCapture = 0; GLint vboSize = 0, iboSize = 0; bool dead = false, temp = false; float dist2 = 0.f; };
@@ -54,6 +55,9 @@ struct ShadowState
     int   logTick = 0;
     // GPU objects
     Prog rp; GLuint fbo = 0, colorTex = 0, depthRb = 0; int res = 0;
+    // 1.6.1 camera depth pass for the real depth of field (GLES2 has no readable scene depth)
+    bool depthWanted = false, shadowFrame = false, depthFailed = false;
+    GLuint camProg = 0, camFbo = 0, camTex = 0, camRb = 0; int camW = 0, camH = 0; GLint cuView = -1, cuProj = -1, cuObj = -1, cuTex = -1, cuAlpha = -1, cuUv = -1;
     // result for the receivers
     bool ready = false; float lvp[16] = {0}; float biasNorm = 0.f, texel = 0.f, fade = 0.f;
     int glErrors = 0;
@@ -369,6 +373,7 @@ void Replay()
     const float reach = R * 1.5f + 160.f;                      // objects can be large: generous distance cull
     int drawn = 0, rej = 0, errs = 0, fromCache = 0;
     const int kMaxReplay = 5200;
+    psrg::IsolateAttribs(1, 8);                                  // 1.6.1: the game's other attributes must not be fetched for our draws
     for (CEntry* ep : G.list)
     {
         CEntry& e = *ep; const Draw& d = e.d;
@@ -389,8 +394,20 @@ void Replay()
         // a remembered caster whose buffers changed size was freed / re-used by the game for something else: forget it
         if (fresh) { e.vboSize = vt->second; e.iboSize = it->second; }
         else if (e.vboSize != vt->second || e.iboSize != it->second) { ++rej; ++G.stats.rejStale; e.dead = true; continue; }
+        // 1.6.1: every index of the draw must address a vertex inside the position buffer (1.6.0 crashed in the driver's vertex fetch)
+        if (d.maxIdx == -2 || (d.maxIdx >= 0 && !psrg::AttrFits(d.pos.ptr, d.pos.stride, d.pos.size, d.pos.type, d.maxIdx, vt->second))) { ++rej; ++G.stats.rejStale; e.dead = true; continue; }
+        if (d.maxIdx < 0 && !fresh && !G.bufTracking) { ++rej; ++G.stats.rejStale; continue; }   // unknown indices + no buffer tracking: only what the game drew this capture
         const bool cut = d.alphaRef > 0.f;
         if (cut && (!d.tex || !d.uv.vbo || d.uv.size <= 0 || (!fresh && !glIsTexture(d.tex)))) { ++rej; ++G.stats.rejStale; if (!fresh) e.dead = true; continue; }
+        if (cut && d.uv.vbo != d.pos.vbo)
+        {   // 1.6.1: the uv buffer is checked like the position buffer
+            if (!glIsBuffer(d.uv.vbo)) { ++rej; ++G.stats.rejStale; e.dead = true; continue; }
+            auto ut = vboSize.find(d.uv.vbo);
+            if (ut == vboSize.end()) { glBindBuffer(GL_ARRAY_BUFFER, d.uv.vbo); curVbo = d.uv.vbo; GLint sz = 0; glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &sz); ut = vboSize.emplace(d.uv.vbo, sz).first; }
+            if (!psrg::AttrFits(d.uv.ptr, d.uv.stride, d.uv.size, d.uv.type, d.maxIdx, ut->second)) { ++rej; ++G.stats.rejStale; e.dead = true; continue; }
+            if (d.pos.vbo != curVbo) { glBindBuffer(GL_ARRAY_BUFFER, d.pos.vbo); curVbo = d.pos.vbo; }
+        }
+        else if (cut && !psrg::AttrFits(d.uv.ptr, d.uv.stride, d.uv.size, d.uv.type, d.maxIdx, vt->second)) { ++rej; ++G.stats.rejStale; e.dead = true; continue; }
         glVertexAttribPointer(0, d.pos.size, d.pos.type, d.pos.norm != 0, d.pos.stride, (const void*)d.pos.ptr);
         glEnableVertexAttribArray(0);
         float alpha = 0.f, uvScale = 1.f;
@@ -467,6 +484,7 @@ void Shadow_Configure(const PSSettings& s, int level)
 {
     G.s = s; G.level = level;
     G.enabled = s.enabled && s.shadows && level < 3 && !G.failed && !G.noHighp;
+    G.depthWanted = s.enabled && s.postFx && s.tiltShift && s.dofMode == 2 && s.tiltStrength > 0.01f && level < 3 && !G.depthFailed;
     G.stats.enabled = G.enabled;
 }
 
@@ -553,6 +571,7 @@ void Shadow_RecordDraw(int mode, int count, uintptr_t off)
     Draw d;
     d.fbo = fb;
     d.ibo = (GLuint)ibo; d.mode = mode == 1 ? GL_TRIANGLE_STRIP : GL_TRIANGLES; d.count = count; d.off = off;
+    d.maxIdx = psrg::MaxIndex(d.ibo, d.off, count);                                     // 1.6.1: -1 unknown, -2 does not fit the index buffer
     d.pos = it->second.pos; d.uv = it->second.uv;
     glGetUniformfv((GLuint)prog, pi.obj, d.obj);
     if (alphaRef > 0.f)
@@ -582,15 +601,145 @@ void Shadow_EndFrame()
     if (G.capturing)
     {
         G.capturing = false;
-        if (G.enabled) { Commit(); Replay(); }
+        if (G.enabled && G.shadowFrame) { Commit(); Replay(); }
         G.draws.clear(); G.vcache.clear(); G.fbos.clear(); G.list.clear(); G.temp.clear();
     }
     ++G.frame;
-    if (!G.enabled) { if (G.ready && G.s.shadows == false) { /* keep texture, strength goes to 0 via Shadow_Uniforms */ } return; }
-    int every = G.s.shadowEvery * (G.level >= 2 ? 2 : 1);
-    if (every < 1) every = 1;
-    G.capturing = (G.frame % (uint32_t)every) == 0;
+    bool sh = false;
+    if (G.enabled)
+    {
+        int every = G.s.shadowEvery * (G.level >= 2 ? 2 : 1);
+        if (every < 1) every = 1;
+        sh = (G.frame % (uint32_t)every) == 0;
+    }
+    G.shadowFrame = sh;
+    G.capturing = sh || G.depthWanted;          // 1.6.1: the real DoF needs this frame's world draws every frame
     if (G.capturing) { G.draws.clear(); G.vcache.clear(); G.fbos.clear(); G.haveCam = G.haveDir = false; G.stats.rejected = 0; G.stats.rejBlend = G.stats.rejNoDepthWrite = G.stats.rejNoIndexBuffer = G.stats.rejVertexFormat = G.stats.rejNoShaderInfo = G.stats.rejMode = G.stats.rejDistance = G.stats.rejStale = 0; }
+}
+
+// ---- 1.6.1 camera depth (real depth of field on GLES2) ----
+static const char* kCVS =
+"attribute vec3 aPos; attribute vec4 aUV;\n"
+"uniform mat4 uView; uniform mat4 uProj; uniform mat4 uObj; uniform float uUvScale;\n"
+"varying vec2 vUV; varying float vZ;\n"
+"void main(){ vUV = aUV.xy * uUvScale; vec4 v = uView * (uObj * vec4(aPos, 1.0)); vZ = abs(v.z); gl_Position = uProj * v; }\n";
+static const char* kCFS =
+"#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n"
+"uniform sampler2D uTex; uniform float uAlpha; varying vec2 vUV; varying float vZ;\n"
+"void main(){\n"
+"  if (uAlpha > 0.0) { if (texture2D(uTex, vUV).a < uAlpha) discard; }\n"
+"  float v = clamp(log2(vZ + 1.0) / 11.0, 0.0, 1.0) * 65535.0; float hi = floor(v / 256.0);\n"
+"  gl_FragColor = vec4(hi / 255.0, (v - hi * 256.0) / 255.0, 1.0, 1.0);\n"     // b = 1: geometry (0 = sky / nothing drawn)
+"}\n";
+
+static bool EnsureCamDepth(int w, int h)
+{
+    if (!G.camProg)
+    {
+        GLuint v = 0, f = 0;
+        if (!Compile(v, GL_VERTEX_SHADER, kCVS) || !Compile(f, GL_FRAGMENT_SHADER, kCFS)) { G.depthFailed = true; return false; }
+        GLuint p = glCreateProgram(); glAttachShader(p, v); glAttachShader(p, f);
+        glBindAttribLocation(p, 0, "aPos"); glBindAttribLocation(p, 1, "aUV");
+        glLinkProgram(p); glDeleteShader(v); glDeleteShader(f);
+        GLint ok = 0; glGetProgramiv(p, GL_LINK_STATUS, &ok);
+        if (!ok) { glDeleteProgram(p); G.depthFailed = true; return false; }
+        G.camProg = p; G.cuView = glGetUniformLocation(p, "uView"); G.cuProj = glGetUniformLocation(p, "uProj"); G.cuObj = glGetUniformLocation(p, "uObj");
+        G.cuTex = glGetUniformLocation(p, "uTex"); G.cuAlpha = glGetUniformLocation(p, "uAlpha"); G.cuUv = glGetUniformLocation(p, "uUvScale");
+    }
+    if (G.camFbo && G.camW == w && G.camH == h) return true;
+    if (G.camFbo) glDeleteFramebuffers(1, &G.camFbo);
+    if (G.camTex) glDeleteTextures(1, &G.camTex);
+    if (G.camRb) glDeleteRenderbuffers(1, &G.camRb);
+    G.camFbo = G.camTex = G.camRb = 0;
+    glGenTextures(1, &G.camTex);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, G.camTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);    // encoded depth: never filter
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glGenRenderbuffers(1, &G.camRb);
+    glBindRenderbuffer(GL_RENDERBUFFER, G.camRb);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, w, h);
+    glGenFramebuffers(1, &G.camFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, G.camFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, G.camTex, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, G.camRb);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) { G.depthFailed = true; return false; }
+    G.camW = w; G.camH = h;
+    return true;
+}
+
+GLuint Shadow_RenderCameraDepth(int w, int h)
+{
+    if (!G.depthWanted || !G.capturing || G.draws.empty() || w < 16 || h < 16) return 0;
+    const FboInfo* main = nullptr;
+    for (const FboInfo& f : G.fbos) if (!main || f.n > main->n) main = &f;
+    if (!main || !main->haveVP) return 0;
+    const int dw = (w + 1) / 2, dh = (h + 1) / 2;
+    if (!EnsureCamDepth(dw, dh)) return 0;
+    glBindFramebuffer(GL_FRAMEBUFFER, G.camFbo);
+    glViewport(0, 0, dw, dh);
+    glDisable(GL_BLEND); glDisable(GL_SCISSOR_TEST); glDisable(GL_STENCIL_TEST); glDisable(GL_CULL_FACE); glDisable(GL_DITHER); glDisable(GL_POLYGON_OFFSET_FILL);
+    glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS); glDepthMask(GL_TRUE); glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.f, 0.f, 0.f, 0.f); glClearDepthf(1.f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glUseProgram(G.camProg);
+    glUniformMatrix4fv(G.cuView, 1, GL_FALSE, main->view);
+    glUniformMatrix4fv(G.cuProj, 1, GL_FALSE, main->proj);
+    glUniform1i(G.cuTex, 0);
+    glActiveTexture(GL_TEXTURE0);
+    psrg::IsolateAttribs(1, 8);
+    GLuint curVbo = 0xffffffffu, curIbo = 0xffffffffu, curTex = 0xffffffffu;
+    bool uvOn = false; int drawn = 0;
+    std::unordered_map<GLuint, GLint> iboSize, vboSize;
+    for (const Draw& d : G.draws)
+    {
+        if (d.fbo != main->id) continue;
+        if (G.bufTracking && (BufGen(d.pos.vbo) != d.vboGen || BufGen(d.ibo) != d.iboGen || (d.uv.vbo && BufGen(d.uv.vbo) != d.uvGen))) continue;
+        if (!glIsBuffer(d.pos.vbo) || !glIsBuffer(d.ibo)) continue;
+        if (d.ibo != curIbo) { glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, d.ibo); curIbo = d.ibo; }
+        auto it = iboSize.find(d.ibo);
+        if (it == iboSize.end()) { GLint sz = 0; glGetBufferParameteriv(GL_ELEMENT_ARRAY_BUFFER, GL_BUFFER_SIZE, &sz); it = iboSize.emplace(d.ibo, sz).first; }
+        if ((long long)d.off + (long long)d.count * 2 > it->second || d.maxIdx == -2) continue;
+        if (d.pos.vbo != curVbo) { glBindBuffer(GL_ARRAY_BUFFER, d.pos.vbo); curVbo = d.pos.vbo; }
+        auto vt = vboSize.find(d.pos.vbo);
+        if (vt == vboSize.end()) { GLint sz = 0; glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &sz); vt = vboSize.emplace(d.pos.vbo, sz).first; }
+        if (d.maxIdx >= 0 && !psrg::AttrFits(d.pos.ptr, d.pos.stride, d.pos.size, d.pos.type, d.maxIdx, vt->second)) continue;
+        bool cut = d.alphaRef > 0.f && d.tex && d.uv.vbo && d.uv.size > 0;
+        if (cut && d.uv.vbo != d.pos.vbo)
+        {
+            auto ut = vboSize.find(d.uv.vbo);
+            if (ut == vboSize.end()) { glBindBuffer(GL_ARRAY_BUFFER, d.uv.vbo); curVbo = d.uv.vbo; GLint sz = 0; glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &sz); ut = vboSize.emplace(d.uv.vbo, sz).first; }
+            if (!psrg::AttrFits(d.uv.ptr, d.uv.stride, d.uv.size, d.uv.type, d.maxIdx, ut->second)) cut = false;
+            if (d.pos.vbo != curVbo) { glBindBuffer(GL_ARRAY_BUFFER, d.pos.vbo); curVbo = d.pos.vbo; }
+        }
+        else if (cut && !psrg::AttrFits(d.uv.ptr, d.uv.stride, d.uv.size, d.uv.type, d.maxIdx, vt->second)) cut = false;
+        if (!cut && d.alphaRef > 0.f) continue;                  // a fence / leaf card without its texture would be a solid wall in the depth
+        glVertexAttribPointer(0, d.pos.size, d.pos.type, d.pos.norm != 0, d.pos.stride, (const void*)d.pos.ptr);
+        glEnableVertexAttribArray(0);
+        float uvScale = 1.f;
+        if (cut)
+        {
+            if (d.uv.vbo != curVbo) { glBindBuffer(GL_ARRAY_BUFFER, d.uv.vbo); curVbo = d.uv.vbo; }
+            glVertexAttribPointer(1, d.uv.size, d.uv.type, d.uv.norm != 0, d.uv.stride, (const void*)d.uv.ptr);
+            glEnableVertexAttribArray(1); uvOn = true;
+            if ((d.uv.type == GL_SHORT || d.uv.type == GL_UNSIGNED_SHORT) && !d.uv.norm) uvScale = 1.f / 512.f;
+            if (d.tex != curTex) { glBindTexture(GL_TEXTURE_2D, d.tex); curTex = d.tex; }
+        }
+        else if (uvOn) { glDisableVertexAttribArray(1); uvOn = false; }
+        glUniform1f(G.cuAlpha, cut ? d.alphaRef : 0.f);
+        glUniform1f(G.cuUv, uvScale);
+        glUniformMatrix4fv(G.cuObj, 1, GL_FALSE, d.obj);
+        glDrawElements(d.mode, d.count, GL_UNSIGNED_SHORT, (const void*)d.off);
+        ++drawn;
+    }
+    glDisableVertexAttribArray(0); glDisableVertexAttribArray(1);
+    int errs = 0; while (glGetError() != GL_NO_ERROR) ++errs;
+    if (errs > 8) { G.depthFailed = true; PS_Log("camera depth: GL errors - real depth of field disabled"); return 0; }
+    G.stats.depthDraws = drawn;
+    return drawn > 0 ? G.camTex : 0;
 }
 
 void Shadow_Uniforms(float lightVP[16], float params[4])
@@ -617,7 +766,7 @@ void Shadow_ContextLost()
 {
     bool failed = G.failed; PSSettings s = G.s; const int* af = G.atFunc; const float* ar = G.atRef; bool bt = G.bufTracking;
     G = ShadowState(); G.failed = failed; G.s = s; G.atFunc = af; G.atRef = ar; G.bufTracking = bt;
-    g_buf.clear(); g_bufBig.clear();
+    g_buf.clear(); g_bufBig.clear(); psrg::Clear();
     Note("context lost - rebuilding");
 }
 
@@ -627,5 +776,9 @@ void Shadow_Shutdown()
     if (G.fbo) glDeleteFramebuffers(1, &G.fbo);
     if (G.colorTex) glDeleteTextures(1, &G.colorTex);
     if (G.depthRb) glDeleteRenderbuffers(1, &G.depthRb);
+    if (G.camProg) glDeleteProgram(G.camProg);
+    if (G.camFbo) glDeleteFramebuffers(1, &G.camFbo);
+    if (G.camTex) glDeleteTextures(1, &G.camTex);
+    if (G.camRb) glDeleteRenderbuffers(1, &G.camRb);
     G = ShadowState();
 }

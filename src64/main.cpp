@@ -1,4 +1,4 @@
-// TyFMCGFX (v1.6.0, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
+// TyFMCGFX (v1.6.1, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
 // Every shader is a .glsl file of the source tree (shaders/{vertex,fragment}, SAShaderL-style layout and uniforms) compiled INTO the .so, see ps_glsl.h.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
@@ -17,6 +17,7 @@
 #include "ps_fx.h"
 #include "ps_ui.h"
 #include "ps_world.h"
+#include "ps_replay_guard.h"
 #include "ps_shadow.h"
 #include "ps_scene.h"
 #include "ps_log.h"
@@ -43,7 +44,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.tyfmcgfx.mobile, TyFMCGFX, 1.6.0, TyFMC)
+MYMOD(net.tyfmcgfx.mobile, TyFMCGFX, 1.6.1, TyFMC)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -628,16 +629,29 @@ static void BufWrite(GLenum target)
     GLint id = 0; glGetIntegerv(target == GL_ARRAY_BUFFER ? GL_ARRAY_BUFFER_BINDING : GL_ELEMENT_ARRAY_BUFFER_BINDING, &id);
     if (id > 0) { std::lock_guard<std::mutex> l(g_bufMx); if (g_bufPending.size() < 65536) g_bufPending.push_back((GLuint)id); }
 }
-static void h_glBufferData(GLenum t, GLsizeiptr n, const void* d, GLenum u) { o_glBufferData(t, n, d, u); if (t == GL_ARRAY_BUFFER || t == GL_ELEMENT_ARRAY_BUFFER) BufWrite(t); }
-static void h_glBufferSubData(GLenum t, GLintptr o, GLsizeiptr n, const void* d) { o_glBufferSubData(t, o, n, d); if (t == GL_ARRAY_BUFFER || t == GL_ELEMENT_ARRAY_BUFFER) BufWrite(t); }
+static GLuint BoundIbo() { GLint id = 0; glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &id); return id > 0 ? (GLuint)id : 0u; }
+// 1.6.1: a CPU copy of the 16-bit index uploads -> the replays know the largest index of every draw (common/ps_replay_guard.h)
+static void h_glBufferData(GLenum t, GLsizeiptr n, const void* d, GLenum u)
+{
+    o_glBufferData(t, n, d, u);
+    if (t == GL_ELEMENT_ARRAY_BUFFER) psrg::OnIndexData(BoundIbo(), 0, (intptr_t)n, d, false);
+    if (t == GL_ARRAY_BUFFER || t == GL_ELEMENT_ARRAY_BUFFER) BufWrite(t);
+}
+static void h_glBufferSubData(GLenum t, GLintptr o, GLsizeiptr n, const void* d)
+{
+    o_glBufferSubData(t, o, n, d);
+    if (t == GL_ELEMENT_ARRAY_BUFFER) psrg::OnIndexData(BoundIbo(), (intptr_t)o, (intptr_t)n, d, true);
+    if (t == GL_ARRAY_BUFFER || t == GL_ELEMENT_ARRAY_BUFFER) BufWrite(t);
+}
 static void* h_glMapBufferRange(GLenum t, GLintptr o, GLsizeiptr n, GLbitfield a)
 {
     void* r = o_glMapBufferRange(t, o, n, a);
-    if ((a & GL_MAP_WRITE_BIT) && (t == GL_ARRAY_BUFFER || t == GL_ELEMENT_ARRAY_BUFFER)) BufWrite(t);
+    if ((a & GL_MAP_WRITE_BIT) && (t == GL_ARRAY_BUFFER || t == GL_ELEMENT_ARRAY_BUFFER)) { if (t == GL_ELEMENT_ARRAY_BUFFER) psrg::OnIndexMapped(BoundIbo()); BufWrite(t); }
     return r;
 }
 static void h_glDeleteBuffers(GLsizei n, const GLuint* ids)
 {
+    psrg::OnDelete(n, ids);
     if (OnRenderThread()) Shadow_OnBufferDelete(n, ids);
     else if (ids && n > 0) { std::lock_guard<std::mutex> l(g_bufMx); for (GLsizei i = 0; i < n && g_bufPending.size() < 65536; ++i) g_bufPending.push_back(ids[i]); }
     o_glDeleteBuffers(n, ids);

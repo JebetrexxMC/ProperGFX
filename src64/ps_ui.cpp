@@ -1,4 +1,5 @@
 #include "ps_ui.h"
+#include "ps_perf_overlay.h"
 #include "ps_features.h"
 #include "ps_guide.h"
 #include "ps_log.h"
@@ -601,6 +602,27 @@ void DrawFeatures(int page, PSSettings& s, const PSUIStatus& st)
         SliderF("Detail", &s.waterDetail, 0.f, 3.f, "%.2f", true);
         FeatureEnd();
     }
+    if (FeatureBegin("DetailTextures - realistic 2x texture mapping", &s.detailOn, true))
+    {
+        SliderF("Detail (2x texture)", &s.detailStrength, 0.f, 1.5f, "%.2f", true);
+        SliderF("Relief (bump shading)", &s.detailRelief, 0.f, 1.5f, "%.2f", true);
+        Note("The world's own textures sampled again at 2x tiling as micro detail, plus relief shading from the texture. Fades out in the distance.");
+        FeatureEnd();
+    }
+    if (FeatureBegin("VisualEnhance - denoise + clarity (DLSS 5-style look)", &s.enhance, true))
+    {
+        SliderF("Clarity", &s.enhanceClarity, 0.f, 1.5f);
+        SliderF("Denoise", &s.enhanceDenoise, 0.f, 1.f);
+        SliderF("Radius (px)", &s.enhanceRadius, 1.f, 5.f, "%.1f");
+        Note("Smooths flat noisy areas while keeping edges, then lifts local contrast in the midtones. Written for this mod and runs on any GPU - it is not NVIDIA DLSS, which needs an RTX card on Windows.");
+        FeatureEnd();
+    }
+    if (FeatureBegin("PerformanceOverlay - FPS, 1% low, frame-time graph", &s.perfOverlay, true))
+    {
+        { static const char* corners[] = { "Top left", "Top right", "Bottom left", "Bottom right" }; Combo("Corner", &s.perfCorner, corners, 4); }
+        Note("FPS, 1% low, average / worst frame time, a frame-time graph, CPU temperature and free RAM. No root needed; lines Android does not allow are hidden.");
+        FeatureEnd();
+    }
     if (FeatureBegin("Underwater", &s.underwater))
     {
         SliderF("Strength", &s.underwaterStrength, 0.f, 1.f);
@@ -722,16 +744,18 @@ void DrawFeatures(int page, PSSettings& s, const PSUIStatus& st)
         Note("Raise to reduce z-fighting; lower to avoid first-person clipping.");
         FeatureEnd();
     }
-    if (FeatureBegin("DepthOfField - dof.glsl (tilt-shift / center focus, bokeh)", &s.tiltShift))
+    if (FeatureBegin("DepthOfField - real depth of field (scene depth, bokeh)", &s.tiltShift))
     {
-        Combo("Mode", &s.dofMode, PS_DofModeNames, PS_DofModeCount);
-        SliderF("Focus position", &s.tiltFocus, 0.f, 1.f);
-        SliderF("Focus width", &s.tiltWidth, 0.05f, 0.6f);
+        Combo("Mode", &s.dofMode, PS_DofModeUiNames, PS_DofModeCount);
+        SliderF("Focus distance (0 = auto)", &s.dofFocusDist, 0.f, 200.f, "%.1f m");
+        SliderF("Aperture", &s.dofAperture, 0.2f, 3.f);
+        SliderF("Focus position (screen modes)", &s.tiltFocus, 0.f, 1.f);
+        SliderF("Focus width / sharp zone", &s.tiltWidth, 0.05f, 0.6f);
         SliderF("Strength", &s.tiltStrength, 0.f, 1.f);
         SliderF("Bokeh (bright highlights)", &s.dofBokeh, 0.f, 2.f);
         SliderF("Blur radius", &s.dofRadius, 0.3f, 3.f);
         SliderF("Underwater blur", &s.dofUnderwater, 0.f, 1.f);
-        Note("TiltShift = screen band, CenterFocus = circle, Adaptive = real depth of field from the scene depth with auto focus on the screen centre (needs the deferred renderer). Underwater blur uses UnderWaterness.");
+        Note("Real depth = blur from the actual distance of every pixel (auto focus on the screen centre, or a fixed focus distance); in-focus edges stay sharp. Tilt-shift and Center circle are screen-shape effects, not depth based.");
         FeatureEnd();
     }
 
@@ -1182,6 +1206,7 @@ void UI_Render(PSSettings& s, int W, int H, float dt, const PSUIStatus& st, bool
         dl->AddImage((ImTextureID)(intptr_t)st.shadowTex, p0, p1, ImVec2(0, 1), ImVec2(1, 0));
         dl->AddText(ImVec2(p0.x + 4, p0.y + 2), IM_COL32(255, 255, 255, 255), s.shadowMethod == 0 ? "shadow mask" : "shadow map");
     }
+    if (s.perfOverlay) psperf::Draw(ImGui::GetIO().DeltaTime, W, H, s.perfCorner, g_fontPx);
     if (s.showButton) DrawButton(s, W, H, st);
     else { std::lock_guard<std::mutex> l(g_mx); g_rects[0].valid = false; }
 

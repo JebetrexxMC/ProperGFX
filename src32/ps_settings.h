@@ -5,14 +5,14 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define PS_VERSION     "1.6.0"
+#define PS_VERSION     "1.6.1"
 #define PS_DIR_NAME    "TyFMCGFX"               // files/TyFMCGFX (1.4-1.5: files/TyFMCGFX, 1.3 and older: files/ProperShader - moved automatically)
 #define PS_INI_NAME    "TyFMCGFX.ini"           // 1.4-1.5: TyFMCGFX.ini, 1.3 and older: settings.ini (renamed automatically)
 #ifndef PS_BUTTON_MIN_OPACITY
 #define PS_BUTTON_MIN_OPACITY 0.05f             // 32-bit build keeps the 1.3 range; the 64-bit build allows a fully transparent button (0.0)
 #endif
 
-enum PSTonemap { TM_OFF = 0, TM_ACES = 1, TM_TIMOTHY = 2, TM_REINHARD = 3 };
+enum PSTonemap { TM_OFF = 0, TM_ACES = 1, TM_TIMOTHY = 2, TM_REINHARD = 3, TM_AGX = 4, TM_NEUTRAL = 5 };
 enum PSQuality { Q_LOW = 0, Q_MEDIUM = 1, Q_HIGH = 2, Q_CUSTOM = 3 };
 
 // A value with a Day and a Night setting; `v` is the live (time-of-day blended) value used by the renderer.
@@ -79,6 +79,11 @@ struct PSSettings
     // ---- [DepthOfField] (tilt-shift, no depth buffer on mobile) ----
     bool  tiltShift    = false;
     float tiltFocus = 0.5f, tiltWidth = 0.22f, tiltStrength = 0.8f;
+    int   dofMode      = 2;          // 1.6.1: 0 = tilt-shift band, 1 = center focus (circle), 2 = real depth (camera depth pass, ps_shadow.cpp)
+    float dofFocusDist = 0.f;        // manual focus distance in metres, 0 = auto focus
+    float dofAperture  = 1.0f;       // more = shallower depth of field
+    float dofBokeh     = 0.6f;
+    float dofRadius    = 1.0f;
     // ---- [Underwater] ----
     bool  underwater   = true;
     float underwaterStrength = 1.0f;
@@ -90,6 +95,15 @@ struct PSSettings
     float specularMul  = 1.0f, reflectionMul = 1.0f;
     bool  wetWorld     = true;
     float wetStrength  = 1.0f;
+    bool  detailOn     = true;       // 1.6.1 [DetailTextures]: the diffuse texture again at 2x tiling as micro detail + relief shading
+    float detailStrength = 0.5f;
+    float detailRelief = 0.4f;
+    bool  enhance      = false;      // 1.6.1 [VisualEnhance]: edge-aware denoise + clarity (own algorithm, runs on any GPU)
+    float enhanceClarity = 0.45f;
+    float enhanceDenoise = 0.25f;
+    float enhanceRadius = 2.5f;
+    bool  perfOverlay  = false;      // 1.6.1 [PerformanceOverlay]: FPS, 1% low, frame-time graph, CPU temperature, free RAM
+    int   perfCorner   = 1;          // 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right
     bool  waterOn      = true;
     float waterDetail  = 1.0f;
     // ---- [ImprovedZFighting] ----
@@ -131,6 +145,8 @@ extern uint32_t g_worldGen;                 // bumped whenever an object-shader 
 extern const char* const PS_QualityNames[]; extern const int PS_QualityCount;
 extern const char* const PS_LookNames[];    extern const int PS_LookCount;
 extern const char* const PS_GradeNames[];   extern const int PS_GradeCount;
+extern const char* const PS_DofModeNames[];   extern const int PS_DofModeCount;
+extern const char* const PS_DofModeUiNames[];
 extern const char* const PS_TonemapNames[]; extern const int PS_TonemapCount;
 extern const char* const PS_TimeNames[];    extern const int PS_TimeCount;
 extern const char* const PS_SunSourceNames[]; extern const int PS_SunSourceCount;

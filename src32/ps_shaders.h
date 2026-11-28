@@ -130,6 +130,7 @@ uniform vec4 uSun;    // x, y, visibility, decay
 uniform vec4 uK;      // autoBias, autoRange, tonemapNorm, frame
 uniform vec4 uGS;     // grade shadow tint
 uniform vec4 uGH;     // grade highlight tint, w = fxaa strength
+uniform vec4 uEN;     // enhance: clarity, (unused), denoise, radius px
 
 float lum3(vec3 c){ return dot(c, vec3(0.299,0.587,0.114)); }
 vec3 toLin(vec3 c){ return c*c; }                 // gamma 2.0 approximation: 1 MUL instead of pow()
@@ -137,12 +138,93 @@ vec3 toGam(vec3 c){ return sqrt(max(c, vec3(0.0))); }
 HP float ign(HP vec2 p){ return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
 HP float hash21(HP vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
 
+#ifdef FX_DOF
+// 1.6.1 real depth of field: uCamDepth = this frame's world from the camera (ps_shadow.cpp camera depth pass, RG = log depth, B = geometry).
+// Thin-lens blur |z - focus| / z with a sharp zone, auto focus on the screen centre, 12-tap golden-angle gather from the full-res scene in which
+// every tap is weighted by its own blur (a sharp object never smears into the blurred background), big blurs read the pre-blurred copy.
+uniform sampler2D uCamDepth;
+uniform vec4 uDofP;   // mode, manual focus (m, 0 = auto), aperture, radius
+uniform vec4 uDofQ;   // bokeh, strength, sharp zone (focus width), 0
+HP float dofZ(vec2 uv){ vec4 c = texture2D(uCamDepth, uv); if (c.b < 0.5) return 3000.0; return exp2((c.r * 255.0 * 256.0 + c.g * 255.0) / 65535.0 * 11.0) - 1.0; }
+vec2 dofCoc(HP float z, HP float f){
+  HP float zone = 0.5 + uDofQ.z * 8.0 + f * 0.15;
+  HP float far  = max(z - f - zone, 0.0) / max(z, 0.1);
+  HP float near = max(f - zone * 0.5 - z, 0.0) / max(z, 0.1);
+  float cf = clamp(far * (0.35 + uDofQ.y * 0.65) * uDofP.z * 2.2, 0.0, 1.0);
+  float cn = clamp(near * (0.6 + uDofQ.y * 0.6) * uDofP.z * 1.4, 0.0, 1.0);
+  return vec2(max(cf, cn), cn);
+}
+vec3 dofDepth(vec3 col, vec2 uv, vec2 px){
+  HP float f = uDofP.y;
+  if (f < 0.05) {                                 // auto focus: what is in the screen centre (nearer taps win a bit)
+    HP float zs = 0.0, ws = 0.0;
+    for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+      HP float l = min(dofZ(vec2(0.5) + vec2(float(x), float(y)) * 0.04), 1500.0);
+      HP float w = 1.0 / (1.0 + l * 0.02); zs += l * w; ws += w;
+    }
+    f = zs / ws;
+  }
+  f = max(f, 0.3);
+  float rmax = 10.0 * uDofP.w * (uRes.y / 720.0) * clamp(uDofQ.y * 1.25, 0.0, 1.5);
+  vec2 c0 = dofCoc(dofZ(uv), f);
+  float nd = c0.y;
+  for (int k = 0; k < 4; k++) { float a = float(k) * 1.5707963 + 0.785398; nd = max(nd, dofCoc(dofZ(uv + vec2(cos(a), sin(a)) * px * rmax * 0.6), f).y * 0.85); }
+  float cc = max(c0.x, nd);
+  float rad = cc * rmax;
+  if (rad < 0.6) return col;
+  float big = clamp((rad - 8.0) / 9.0, 0.0, 1.0);
+  float rot = ign(gl_FragCoord.xy) * 6.2831853;
+  vec3 acc = col; float wsum = 1.0;
+  for (int i = 1; i <= 12; i++) {
+    float fi = float(i);
+    float r = sqrt(fi / 12.0) * rad;
+    float a = fi * 2.3999632 + rot;
+    vec2 tuv = uv + vec2(cos(a), sin(a)) * r * px;
+    vec3 c = mix(texture2D(uScene, tuv).rgb, texture2D(uDof, tuv).rgb, big);
+    vec2 tc = dofCoc(dofZ(tuv), f);
+    float w = clamp(max(tc.x, tc.y) * rmax - r + 1.5, 0.0, 1.0);
+    float l = lum3(c);
+    w *= 1.0 + uDofQ.x * l * l * 4.0;
+    acc += c * w; wsum += w;
+  }
+  return mix(col, acc / wsum, smoothstep(0.0, 0.12, cc));
+}
+#endif
+
 #if TM_MODE == 1
 vec3 tonemap(vec3 x){ x *= 0.7232; return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
 #elif TM_MODE == 2
 vec3 tonemap(vec3 x){ x = max(x*0.7203, vec3(0.0001)); return pow(x, vec3(1.6)) / (pow(x, vec3(1.5632))*1.07304 + 0.16742); }
 #elif TM_MODE == 3
 vec3 tonemap(vec3 x){ x *= 1.1998; return x*(1.0 + x/16.0)/(1.0 + x); }
+#elif TM_MODE == 4
+// AgX (Troy Sobotka's AgX, minimal fit). Ported from Google Filament's ToneMapper (Apache-2.0, see THIRD_PARTY_NOTICES.md)
+vec3 agxCurve(vec3 x){ vec3 x2 = x*x; vec3 x4 = x2*x2; return 15.5*x4*x2 - 40.14*x4*x + 31.96*x4 - 6.868*x2*x + 0.4298*x2 + 0.1191*x - 0.00232; }
+vec3 tonemap(vec3 c){
+  const mat3 agxIn  = mat3(0.842479062253094, 0.0423282422610123, 0.0423756549057051, 0.0784335999999992, 0.878468636469772, 0.0784336, 0.0792237451477643, 0.0791661274605434, 0.879142973793104);
+  const mat3 agxOut = mat3(1.19687900512017, -0.0528968517574562, -0.0529716355144438, -0.0980208811401368, 1.15190312990417, -0.0980434501171241, -0.0990297440797205, -0.0989611768448433, 1.15107367264116);
+  c = agxIn * (c * 0.62);
+  c = clamp(log2(max(c, vec3(1e-10))), -12.47393, 4.026069);
+  c = (c + 12.47393) / 16.5;
+  c = agxOut * agxCurve(c);
+  c = max(c, vec3(0.0));
+  return c * c;                                    // AgX output is display-encoded: back to the composite's linear (gamma 2.0)
+}
+#elif TM_MODE == 5
+// Khronos PBR Neutral. Ported from Google Filament's ToneMapper (Apache-2.0, see THIRD_PARTY_NOTICES.md)
+vec3 tonemap(vec3 c){
+  const float startC = 0.76; const float desat = 0.15;
+  float x = min(c.r, min(c.g, c.b));
+  float off = x < 0.08 ? x - 6.25*x*x : 0.04;
+  c -= off;
+  float peak = max(c.r, max(c.g, c.b));
+  if (peak < startC) return c;
+  const float d = 1.0 - startC;
+  float np = 1.0 - d*d / (peak + d - startC);
+  c *= np / peak;
+  float g = 1.0 - 1.0 / (desat * (peak - np) + 1.0);
+  return mix(c, vec3(np), g);
+}
 #endif
 
 #ifdef FX_AA
@@ -240,10 +322,31 @@ void main(){
   }
 #endif
 
-#ifdef FX_DOF
+#ifdef FX_ENHANCE   // TyFMCGFX Visual Enhance (written for this mod): edge-aware denoise + luminance clarity
   {
-    float m = smoothstep(uH.z, uH.z + 0.28, abs(uv.y - uH.y)) * uF.y;
-    col = mix(col, texture2D(uDof, suv).rgb, m);
+    vec2 r = px * uEN.w;
+    vec3 a0 = texture2D(uScene, suv + r*vec2( 1.0, 1.0)).rgb;
+    vec3 a1 = texture2D(uScene, suv + r*vec2(-1.0, 1.0)).rgb;
+    vec3 a2 = texture2D(uScene, suv + r*vec2( 1.0,-1.0)).rgb;
+    vec3 a3 = texture2D(uScene, suv + r*vec2(-1.0,-1.0)).rgb;
+    vec3 base = (a0 + a1 + a2 + a3) * 0.25;
+    float lc = lum3(col); float lb = lum3(base);
+    float dn = uEN.z * (1.0 - smoothstep(0.012, 0.05, abs(lc - lb)));   // only flat noisy areas, edges stay sharp
+    col = mix(col, base, dn * 0.5);
+    lc = lum3(col);
+    float dl = clamp(lc - lb, -0.10, 0.10) * uEN.x * (4.0 * lc * (1.0 - lc));
+    col = clamp(col * ((lc + dl) / max(lc, 0.002)), 0.0, 1.0);
+  }
+#endif
+
+#ifdef FX_DOF
+  if (uDofP.x > 2.5) { }                         // real depth wanted, no depth this frame: no blur
+  else if (uDofP.x > 1.5) col = dofDepth(col, suv, px);
+  else {
+    float m;
+    if (uDofP.x < 0.5) m = smoothstep(uH.z, uH.z + 0.28, abs(uv.y - uH.y));
+    else { vec2 d = (uv - vec2(0.5, uH.y)) * vec2(uRes.x / uRes.y, 1.0); m = smoothstep(uH.z, uH.z + 0.45, length(d)); }
+    col = mix(col, texture2D(uDof, suv).rgb, m * uF.y);
   }
 #endif
 

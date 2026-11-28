@@ -21,6 +21,7 @@ struct PSShadowStats
     float sunElevation = 0.f;      // sin(elevation): 0 = horizon, 1 = zenith
     float cpuMs = 0.f;             // CPU time of the last replay
     float fade = 0.f;              // 0 = no shadows (night), 1 = full
+    int   depthDraws = 0;          // 1.6.1: world draws in the camera depth pass (real depth of field)
     char  note[96] = "";
 };
 
@@ -30,6 +31,7 @@ void   Shadow_SetSunHint(const float v[3], bool valid);        // CTimeCycle::m_
 bool   Shadow_WantCapture();                                   // true while this frame's draws are being recorded
 void   Shadow_RecordDraw(int mode, int count, uintptr_t offset);   // call right AFTER the game issued the draw
 void   Shadow_EndFrame();
+GLuint Shadow_RenderCameraDepth(int w, int h);                // 1.6.1: this frame's world draws from the camera -> half-res depth (RG = log depth, B = geometry); 0 = none
 // 1.4.6: the game's alpha-test state (RQ_Command_rqSetAlphaTest statics) and buffer writes seen by the GOT hooks on libGTASA's GL imports
 void   Shadow_SetAlphaTestState(const int* func, const float* ref);
 void   Shadow_SetBufferTracking(bool on);

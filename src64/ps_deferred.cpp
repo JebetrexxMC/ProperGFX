@@ -345,7 +345,8 @@ void Deferred_AfterScene(const PSSettings& s, int level)
             Target(D.cocRT); glUseProgram(p); Common(p, c, e, w, h);
             Tex(0, c.depthTex); Tex(1, cur.tex); S1i(p, "uFocus", 1);
             // sharp zone grows with the focus distance; Strength = how much blur, FocusWidth = how deep the sharp zone is
-            S4(p, "uP", 2.f + s.tiltWidth * 20.f, 1.f, 0.6f, 0.35f + s.tiltStrength * 0.65f);
+            S4(p, "uP", 0.5f + s.tiltWidth * 8.f, 1.f, 0.6f + s.tiltStrength * 0.6f, 0.35f + s.tiltStrength * 0.65f);
+            S4(p, "uQ", s.dofFocusDist, s.dofAperture, 0.f, 0.f);   // 1.6.1: manual focus (0 = auto), aperture
             Draw();
             D.cocOut = D.cocRT.tex; D.st.coc = true;
         }

@@ -28,14 +28,25 @@ for f in ['def_ao', 'def_bilateral', 'def_volume', 'def_composite', 'def_focus',
     bad += not check(f, expand('fragment/%s.glsl' % f, set()), 'frag')
 for f in ['fxaa_pass', 'bloom_bright', 'downsample', 'blur_gauss', 'autoexposure', 'custom']:
     bad += not check(f, expand('fragment/%s.glsl' % f, set()), 'frag')
-FX = ['FX_AA','FX_CA','FX_CAS','FX_DOF','FX_OUTLINE','FX_CEL','FX_AUTOEXP','FX_BLOOM','FX_RAYS','FX_FLARE','FX_GLOW','FX_GOLDEN','FX_LUT','FX_UNDER','FX_VHS','FX_VIGNETTE','FX_GRAIN','FX_DITHER','FX_GRADE','FX_GAMMA']
+FX = ['FX_AA','FX_CA','FX_CAS','FX_DOF','FX_OUTLINE','FX_CEL','FX_AUTOEXP','FX_BLOOM','FX_RAYS','FX_FLARE','FX_GLOW','FX_GOLDEN','FX_LUT','FX_UNDER','FX_VHS','FX_VIGNETTE','FX_GRAIN','FX_DITHER','FX_GRADE','FX_GAMMA','FX_ENHANCE']
 final = expand('fragment/final.glsl', set())
 random.seed(1); n = 0
 combos = [[], FX] + [[f] for f in FX] + [random.sample(FX, random.randint(2, len(FX))) for _ in range(40)]
 for c in combos:
-    for tm in range(4):
+    for tm in range(6):
         d = ''.join('#define %s 1\n' % x for x in c) + '#define TM_MODE %d\n' % tm
         bad += not check('final_%d' % n, d + final, 'frag'); n += 1
+# 1.6.1: the 32-bit build's final composite (GLSL ES 1.00 text inside src32/ps_shaders.h), same variant scheme
+def cstr(name):
+    src = open(os.path.join(ROOT, '..', 'src32', 'ps_shaders.h')).read()
+    a = src.index('static const char* %s = R"GLSL(' % name); a = src.index('(', src.index('R"GLSL', a)) + 1
+    return src[a:src.index(')GLSL"', a)]
+head32, fxaa32, final32 = cstr('kFSHead'), cstr('kFXAAFunc'), cstr('kFSFinal').replace('FXAA_FUNC', cstr('kFXAAFunc'), 1)
+FX32 = [x for x in FX if x not in ('FX_GLOW', 'FX_GOLDEN')]
+for c in [[], FX32] + [[f] for f in FX32] + [random.sample(FX32, random.randint(2, len(FX32))) for _ in range(20)]:
+    for tm in range(6):
+        d = ''.join('#define %s 1\n' % x for x in c) + '#define TM_MODE %d\n' % tm
+        bad += not check('final32_%d' % n, d + head32 + final32, 'frag'); n += 1
 # shadow receiver snippets inside a mock game shader
 def sec(rel, name):
     s = open(os.path.join(ROOT, rel)).read(); m = '//@@' + name + '\n'; a = s.index(m) + len(m); return s[a:s.index('//@@', a)]

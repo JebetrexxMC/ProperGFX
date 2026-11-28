@@ -53,6 +53,8 @@ int main(int argc, char** argv)
     };
 
     PSSettings st; PS_ApplyQuality(st, getenv("PS_Q") ? atoi(getenv("PS_Q")) : 2); PS_ApplyLook(st, preset);
+    if (getenv("PS_TM")) { st.hdr = true; st.tonemap = atoi(getenv("PS_TM")); }
+    if (getenv("PS_ENH")) { st.enhance = atoi(getenv("PS_ENH")) != 0; }
     if (const char* ini = getenv("PS_INI")) PS_LoadSettings(st, ini);
     if (const char* off = getenv("PS_OFF")) {
         if (strstr(off, "all")) { st.autoExp=false; st.bloom=false; st.sunRays=false; st.lensFlare=false; st.fxaa=false; st.cas=false; st.vignette=false; st.dither=false; st.hdr=false; st.grading=false; }

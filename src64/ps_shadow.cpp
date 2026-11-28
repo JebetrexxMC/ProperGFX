@@ -1,4 +1,5 @@
 #include "ps_shadow.h"
+#include "ps_replay_guard.h"
 #include "ps_glsl.h"
 #include "ps_scene.h"
 #include <string>
@@ -32,7 +33,7 @@ struct VAttr { Attr pos, uv; bool ok = false; };
 // 1.4.6: kind = what CEntity::Render said this draw is (PSDrawKind), alphaRef = alpha-test threshold (0 = solid caster),
 //        *Gen = buffer generation at capture time (glBufferData / glBufferSubData / glMapBufferRange / glDeleteBuffers bump it)
 struct Draw  { GLuint ibo = 0, tex = 0; GLenum mode = GL_TRIANGLES; GLsizei count = 0; uintptr_t off = 0; Attr pos, uv; float obj[16]; GLint fbo = 0;
-               int kind = 0; float alphaRef = 0.f; uint32_t vboGen = 0, iboGen = 0, uvGen = 0; bool cacheable = false; };
+               int kind = 0; float alphaRef = 0.f; uint32_t vboGen = 0, iboGen = 0, uvGen = 0; int maxIdx = -1; bool cacheable = false; };
 // A shadow caster remembered across frames. The game only draws what is in view, so a building behind you would stop casting into the view the moment you turn.
 // 1.4.6: ONLY static world geometry is remembered (CEntity::Render tagged it as a building / tree and its buffers are not rewritten by the game).
 // LOD stand-ins, objects, vehicles and untagged draws cast only in the capture they were drawn in - they can never leave a ghost behind.
@@ -372,6 +373,7 @@ int DrawList(const Prog& p, int cascade, const float center[3], float reach, int
     std::unordered_map<GLuint, GLint> iboSize, vboSize;
     int drawn = 0;
     glActiveTexture(GL_TEXTURE0);
+    psrg::IsolateAttribs(1, 8);                                  // 1.6.1: the game's other attributes must not be fetched for our draws
     for (CEntry* ep : G.list)
     {
         CEntry& e = *ep; const Draw& d = e.d;
@@ -397,9 +399,21 @@ int DrawList(const Prog& p, int cascade, const float center[3], float reach, int
         // a remembered caster whose buffers changed size was freed / re-used by the game for something else: forget it
         if (fresh) { e.vboSize = vt->second; e.iboSize = it->second; }
         else if (e.vboSize != vt->second || e.iboSize != it->second) { ++rej; ++G.stats.rejStale; e.dead = true; continue; }
+        // 1.6.1: every index of the draw must address a vertex inside the position buffer (1.6.0 crashed in the driver's vertex fetch)
+        if (d.maxIdx == -2 || (d.maxIdx >= 0 && !psrg::AttrFits(d.pos.ptr, d.pos.stride, d.pos.size, d.pos.type, d.maxIdx, vt->second))) { ++rej; ++G.stats.rejStale; e.dead = true; continue; }
+        if (d.maxIdx < 0 && !fresh && !G.bufTracking) { ++rej; ++G.stats.rejStale; continue; }   // unknown indices + no buffer tracking: only what the game drew this capture
         // remembered textures can be freed too: an alpha-tested caster without its texture is skipped (never cast as a solid box)
         const bool cut = d.alphaRef > 0.f;
         if (cut && (!d.tex || !d.uv.vbo || d.uv.size <= 0 || (!fresh && !glIsTexture(d.tex)))) { ++rej; ++G.stats.rejStale; if (!fresh) e.dead = true; continue; }
+        if (cut && d.uv.vbo != d.pos.vbo)
+        {   // 1.6.1: the uv buffer is checked like the position buffer
+            if (!glIsBuffer(d.uv.vbo)) { ++rej; ++G.stats.rejStale; e.dead = true; continue; }
+            auto ut = vboSize.find(d.uv.vbo);
+            if (ut == vboSize.end()) { glBindBuffer(GL_ARRAY_BUFFER, d.uv.vbo); curVbo = d.uv.vbo; GLint sz = 0; glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &sz); ut = vboSize.emplace(d.uv.vbo, sz).first; }
+            if (!psrg::AttrFits(d.uv.ptr, d.uv.stride, d.uv.size, d.uv.type, d.maxIdx, ut->second)) { ++rej; ++G.stats.rejStale; e.dead = true; continue; }
+            if (d.pos.vbo != curVbo) { glBindBuffer(GL_ARRAY_BUFFER, d.pos.vbo); curVbo = d.pos.vbo; }
+        }
+        else if (cut && !psrg::AttrFits(d.uv.ptr, d.uv.stride, d.uv.size, d.uv.type, d.maxIdx, vt->second)) { ++rej; ++G.stats.rejStale; e.dead = true; continue; }
         glVertexAttribPointer(0, d.pos.size, d.pos.type, d.pos.norm != 0, d.pos.stride, (const void*)d.pos.ptr);
         glEnableVertexAttribArray(0);
         float uvScale = 1.f;
@@ -980,6 +994,7 @@ void Shadow_RecordDraw(int mode, int count, uintptr_t off)
     Draw d;
     d.fbo = fb; d.kind = kind;
     d.ibo = (GLuint)ibo; d.mode = mode == 1 ? GL_TRIANGLE_STRIP : GL_TRIANGLES; d.count = count; d.off = off;
+    d.maxIdx = psrg::MaxIndex(d.ibo, d.off, count);                                     // 1.6.1: -1 unknown, -2 does not fit the index buffer
     d.pos = it->second.pos; d.uv = it->second.uv;
     glGetUniformfv((GLuint)prog, pi.obj, d.obj);
     if (alphaRef > 0.f)
@@ -1053,7 +1068,7 @@ void Shadow_ContextLost()
 {
     bool failed = G.failed, cs = G.def.camService; PSSettings s = G.s; const int* af = G.atFunc; const float* ar = G.atRef; bool bt = G.bufTracking;
     G = ShadowState(); G.failed = failed; G.s = s; G.atFunc = af; G.atRef = ar; G.bufTracking = bt; G.def.camService = cs;
-    g_buf.clear(); g_bufBig.clear();
+    g_buf.clear(); g_bufBig.clear(); psrg::Clear();
     Note("context lost - rebuilding");
 }
 

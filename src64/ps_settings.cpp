@@ -10,13 +10,14 @@ uint32_t g_worldGen = 1;
 const char* const PS_QualityNames[] = { "Low", "Medium", "High", "Custom", "Ultra" };   const int PS_QualityCount = 5;
 const char* const PS_QualityMenuNames[] = { "Low", "Mid", "High", "Ultra" };
 const char* const PS_AoModeNames[] = { "SSAO", "HBAO", "SSGI" }; const int PS_AoModeCount = 3;
-const char* const PS_LookNames[]    = { "Default", "Cinematic", "Vivid", "Soft dream", "Anime", "Noir", "Retro VHS" }; const int PS_LookCount = 7;
+const char* const PS_LookNames[]    = { "Default", "Cinematic", "Vivid", "Soft dream", "Anime", "Noir", "Retro VHS", "GTA VI style" }; const int PS_LookCount = 8;
 const char* const PS_GradeNames[]   = { "Neutral", "Cinematic (teal/orange)", "Warm sunset", "Cold", "Noir", "Vintage", "Vivid" }; const int PS_GradeCount = 7;
-const char* const PS_TonemapNames[] = { "Off", "ACES", "Timothy", "Reinhard" }; const int PS_TonemapCount = 4;
+const char* const PS_TonemapNames[] = { "Off", "ACES", "Timothy", "Reinhard", "AgX (Filament)", "PBR Neutral (Filament)" }; const int PS_TonemapCount = 6;
 const char* const PS_TimeNames[]    = { "Auto", "Day", "Night" }; const int PS_TimeCount = 3;
 const char* const PS_SunSourceNames[] = { "Auto", "TimeCycle", "Light" }; const int PS_SunSourceCount = 3;
 const char* const PS_ShadowMethodNames[] = { "Deferred", "InShader" }; const int PS_ShadowMethodCount = 2;
 const char* const PS_DofModeNames[] = { "TiltShift", "CenterFocus", "Adaptive" }; const int PS_DofModeCount = 3;   // 1.5: Adaptive = real depth of field with auto focus (scene depth)
+const char* const PS_DofModeUiNames[] = { "Tilt-shift (screen band)", "Center circle (screen)", "Real depth (auto focus)" };
 
 // ------------------------------------------------------------------ field table
 enum FT { FT_BOOL, FT_INT, FT_FLOAT, FT_DN, FT_ENUM, FT_STR, FT_FLOAT_LEGACY };   // LEGACY = read for old ini files, never written
@@ -33,9 +34,9 @@ struct Field { const char* sec; const char* key; FT t; size_t off; const char* c
 
 static const Field kFields[] = {
     B("General", "Enabled", enabled) B("General", "PostProcessing", postFx) B("General", "WorldShaderPatches", worldPatch)
-    E("General", "Quality", quality, PS_QualityNames, 5) E("General", "Look", look, PS_LookNames, 7)
+    E("General", "Quality", quality, PS_QualityNames, 5) E("General", "Look", look, PS_LookNames, 8)
     B("General", "AdaptiveQuality", adaptive) I("General", "TargetFPS", targetFps) E("General", "TimeOfDay", timeOfDay, PS_TimeNames, 3)
-    B("SimulateHDR", "Enabled", hdr) E("SimulateHDR", "Tonemapper", tonemap, PS_TonemapNames, 4)
+    B("SimulateHDR", "Enabled", hdr) E("SimulateHDR", "Tonemapper", tonemap, PS_TonemapNames, 6)
     D("SimulateHDR", "Amount", hdrAmount) D("SimulateHDR", "Exposure", exposure)
     B("AutoExposure", "Enabled", autoExp) F("AutoExposure", "Bias", autoBias) F("AutoExposure", "Range", autoRange) F("AutoExposure", "Speed", autoSpeed)
     B("Bloom", "Enabled", bloom) D("Bloom", "Intensity", bloomIntensity) F("Bloom", "Threshold", bloomThreshold) F("Bloom", "Radius", bloomRadius)
@@ -54,12 +55,16 @@ static const Field kFields[] = {
     B("ChromaticAberration", "Enabled", chromatic) F("ChromaticAberration", "Strength", chromaticStrength)
     B("DepthOfField", "Enabled", tiltShift) F("DepthOfField", "Focus", tiltFocus) F("DepthOfField", "Width", tiltWidth) F("DepthOfField", "Strength", tiltStrength)
     E("DepthOfField", "Mode", dofMode, PS_DofModeNames, 3) F("DepthOfField", "Bokeh", dofBokeh) F("DepthOfField", "Radius", dofRadius) F("DepthOfField", "UnderwaterBlur", dofUnderwater)
+    F("DepthOfField", "FocusDistance", dofFocusDist) F("DepthOfField", "Aperture", dofAperture)
     B("SunVector", "Enabled", sunVectorOn) F("SunVector", "Glow", sunGlow) F("SunVector", "GlowSize", sunGlowSize) F("SunVector", "GoldenHour", goldenHour)
     B("Underwater", "Enabled", underwater) F("Underwater", "Strength", underwaterStrength)
     B("HorizonFog", "Enabled", fogOn) D("HorizonFog", "Density", fogDensity) F("HorizonFog", "Softness", fogSoftness)
     B("SurfaceShading", "Enabled", surfaceOn) F("SurfaceShading", "Specular", specularMul) F("SurfaceShading", "Reflections", reflectionMul)
     B("WorldRainfall", "Enabled", wetWorld) F("WorldRainfall", "Strength", wetStrength)
     B("WaterSurface", "Enabled", waterOn) F("WaterSurface", "Detail", waterDetail)
+    B("DetailTextures", "Enabled", detailOn) F("DetailTextures", "Strength", detailStrength) F("DetailTextures", "Relief", detailRelief)
+    B("VisualEnhance", "Enabled", enhance) F("VisualEnhance", "Clarity", enhanceClarity) F("VisualEnhance", "Denoise", enhanceDenoise) F("VisualEnhance", "Radius", enhanceRadius)
+    B("PerformanceOverlay", "Enabled", perfOverlay) I("PerformanceOverlay", "Corner", perfCorner)
     B("ImprovedZFighting", "Enabled", zfix) F("ImprovedZFighting", "NearClip", nearClip)
     B("DynamicShadows", "Enabled", shadows) F("DynamicShadows", "Strength", shadowStrength) I("DynamicShadows", "Resolution", shadowRes)
     F("DynamicShadows", "Distance", shadowDist) I("DynamicShadows", "UpdateEvery", shadowEvery) F("DynamicShadows", "Softness", shadowSoft)
@@ -119,7 +124,7 @@ static inline void clampDN(DN& d, float a, float b) { d.day = clampf(d.day, a, b
 
 static void Sanitize(PSSettings& s)
 {
-    s.tonemap = s.tonemap < 0 ? 0 : (s.tonemap > 3 ? 3 : s.tonemap);
+    s.tonemap = s.tonemap < 0 ? 0 : (s.tonemap > 5 ? 5 : s.tonemap);
     s.quality = s.quality < 0 ? 0 : (s.quality > 4 ? 4 : s.quality);
     s.aoMode = (s.aoMode < 0 || s.aoMode > 2) ? AO_HBAO : s.aoMode;
     s.aoRadius = clampf(s.aoRadius, 0.2f, 4.f); s.aoIntensity = clampf(s.aoIntensity, 0.f, 2.f); s.giStrength = clampf(s.giStrength, 0.f, 2.f);
@@ -133,6 +138,11 @@ static void Sanitize(PSSettings& s)
     s.puddles = clampf(s.puddles, 0.f, 1.f); s.ripples = clampf(s.ripples, 0.f, 1.f); s.rainFall = clampf(s.rainFall, 0.f, 1.f);
     s.causticsStrength = clampf(s.causticsStrength, 0.f, 2.f); s.taaBlend = clampf(s.taaBlend, 0.5f, 0.97f); s.fsrSharpness = clampf(s.fsrSharpness, 0.f, 1.f);
     s.shadowCascades = s.shadowCascades >= 3 ? 4 : 2;
+    s.dofMode = (s.dofMode < 0 || s.dofMode > 2) ? 2 : s.dofMode; s.dofFocusDist = clampf(s.dofFocusDist, 0.f, 500.f); s.dofAperture = clampf(s.dofAperture, 0.2f, 3.f);
+    s.dofBokeh = clampf(s.dofBokeh, 0.f, 2.f); s.dofRadius = clampf(s.dofRadius, 0.3f, 3.f);
+    s.detailStrength = clampf(s.detailStrength, 0.f, 1.5f); s.detailRelief = clampf(s.detailRelief, 0.f, 1.5f);
+    s.enhanceClarity = clampf(s.enhanceClarity, 0.f, 1.5f); s.enhanceDenoise = clampf(s.enhanceDenoise, 0.f, 1.f); s.enhanceRadius = clampf(s.enhanceRadius, 1.f, 5.f);
+    s.perfCorner = s.perfCorner < 0 || s.perfCorner > 3 ? 1 : s.perfCorner;
     s.look = s.look < 0 ? 0 : (s.look >= PS_LookCount ? 0 : s.look);
     s.gradePreset = s.gradePreset < 0 ? 0 : (s.gradePreset >= PS_GradeCount ? 0 : s.gradePreset);
     s.targetFps = s.targetFps ? 1 : 0;
@@ -153,7 +163,7 @@ static void Sanitize(PSSettings& s)
     s.buttonX = clampf(s.buttonX, 0.f, 1.f); s.buttonY = clampf(s.buttonY, 0.f, 1.f);
     s.buttonScale = clampf(s.buttonScale, 0.5f, 2.5f); s.buttonOpacity = clampf(s.buttonOpacity, PS_BUTTON_MIN_OPACITY, 1.f); if (s.buttonOpacity < PS_BUTTON_HIDDEN_BELOW) s.buttonOpacity = 0.f;
     s.lutAmount = clampf(s.lutAmount, 0.f, 1.f);
-    s.dofMode = (s.dofMode < 0 || s.dofMode > 2) ? 0 : s.dofMode; s.dofBokeh = clampf(s.dofBokeh, 0.f, 2.f); s.dofRadius = clampf(s.dofRadius, 0.3f, 3.f);
+    s.dofBokeh = clampf(s.dofBokeh, 0.f, 2.f); s.dofRadius = clampf(s.dofRadius, 0.3f, 3.f);
     s.dofUnderwater = clampf(s.dofUnderwater, 0.f, 1.f); s.sunGlow = clampf(s.sunGlow, 0.f, 1.5f); s.sunGlowSize = clampf(s.sunGlowSize, 0.03f, 0.6f);
     s.goldenHour = clampf(s.goldenHour, 0.f, 1.f); s.shadowTint = clampf(s.shadowTint, 0.f, 1.f);
     s.shadowMethod = 0;                 // 1.4.6: always Deferred (like ZyZGFX64); an old 'Method = InShader' line is ignored
@@ -185,6 +195,7 @@ bool PS_LoadSettings(PSSettings& s, const char* path)
     if (!fp) return false;
     char line[256], sec[64] = "";
     bool any = false;
+    s.dofFocusDist = -1.f;              // 1.6.1: an ini without FocusDistance is older: its DoF switches to the real (depth) mode
     while (fgets(line, sizeof(line), fp))
     {
         char* nl = strpbrk(line, "\r\n"); if (nl) *nl = 0;
@@ -216,6 +227,7 @@ bool PS_LoadSettings(PSSettings& s, const char* path)
         }
     }
     fclose(fp);
+    if (s.dofFocusDist < -0.5f) { s.dofFocusDist = 0.f; s.dofMode = 2; }
     Sanitize(s);
     return any;
 }
@@ -351,6 +363,16 @@ void PS_ApplyLook(PSSettings& s, int p)
                 s.bloomIntensity = DN(0.3f, 0.35f); break;
         case 6: s.vhs = true; s.vhsStrength = 0.7f; s.chromatic = true; s.grain = true; s.saturation = DN(0.9f, 0.85f); s.gradePreset = 5;
                 s.gradeAmount = 0.8f; s.vignetteStrength = DN(0.45f, 0.5f); break;
+        // 1.6.1 "GTA VI style": Rockstar's GTA VI shaders are not public, so this is a look built from what the trailers show - a filmic
+        // ACES curve with soft highlight roll-off, warm sun / teal shade, wide soft bloom, wet glossy streets, hazy sun shafts, crisp detail,
+        // gentle real-depth DoF and micro-detail on the world textures
+        case 7: s.tonemap = TM_ACES; s.hdrAmount = DN(0.8f, 0.7f); s.exposure = DN(0.1f, 0.2f);
+                s.gradePreset = 1; s.gradeAmount = 0.45f; s.contrast = DN(1.08f, 1.12f); s.saturation = DN(1.12f, 1.05f); s.vibrance = 0.35f;
+                s.bloomIntensity = DN(0.5f, 0.7f); s.bloomThreshold = 0.6f; s.bloomRadius = 1.5f; s.lensFlare = true; s.sunRays = true;
+                s.vignetteStrength = DN(0.25f, 0.35f); s.fogDensity = DN(1.15f, 1.1f); s.fogSoftness = 0.6f; s.wetStrength = 1.35f;
+                s.cas = true; s.casStrength = 0.45f; s.detailOn = true; s.detailStrength = 0.6f; s.detailRelief = 0.5f; s.enhance = true; s.enhanceClarity = 0.5f; s.enhanceDenoise = 0.2f;
+                s.tiltShift = true; s.dofMode = 2; s.tiltStrength = 0.45f; s.tiltWidth = 0.35f; s.dofAperture = 0.8f; s.dofFocusDist = 0.f;
+                s.volFogOn = true; s.volFogDensity = DN(0.38f, 0.5f); s.volGodrays = 1.1f; s.ssrOn = true; s.ssrStrength = 0.7f; break;
     }
     ++g_worldGen;
 }

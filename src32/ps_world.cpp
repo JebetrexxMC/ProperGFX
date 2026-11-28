@@ -19,10 +19,11 @@ GLuint g_lastProg = 0; unsigned g_lastGen = 0;
 // un-initialised (all zero) uniform reproduces the original game look exactly.
 float g_A[4] = { 0, 0, 0, 0 };
 float g_B[4] = { 0, 0, 0, 0 };
+float g_C[4] = { 0, 0, 0, 0 };
 float g_LVP[16] = {0}; float g_SH[4] = {0, 0, 0, 0};     // shadow receiver uniforms (zero = shadows off)
 unsigned g_gen = 1, g_frame = 1, g_bindFrame = 0;
 
-struct ProgInfo { GLint locA = -1, locB = -1, locLVP = -1, locSh = -1, locMap = -1; unsigned gen = 0; };
+struct ProgInfo { GLint locA = -1, locB = -1, locC = -1, locLVP = -1, locSh = -1, locMap = -1; unsigned gen = 0; };
 std::unordered_map<GLuint, ProgInfo> g_progs;
 
 bool Replace(std::string& s, const char* from, const std::string& to)
@@ -135,6 +136,18 @@ bool World_PatchPixelSource(unsigned flags, const char* src, std::string& out, b
     // 4) water detail contrast
     if (Replace(out, "fcolor *= vec4(Out_Color.xyz * waterDetail * 1.1, Out_Color.w);",
                 "fcolor *= vec4(Out_Color.xyz * (1.0 + (waterDetail - 1.0) * (1.0 + PS_B.y)) * 1.1, Out_Color.w);")) any = true;
+    // 1.6.1 [DetailTextures] "realistic texture mapping 2x": the world's own diffuse texture is sampled again at 2x tiling as micro detail
+    //   (luminance only, so colours stay) plus a relief term from two offset taps (embossed bumps, light from the upper left). Fades out with
+    //   the fog so far geometry does not shimmer. PS_C = (detail, relief, 0, 0). Only lit / fogged world shaders with a diffuse texture.
+    bool detailIn = false;
+    if (world && out.find("texture2D(Diffuse, Out_Tex0") != std::string::npos &&
+        Replace(out, "fcolor = diffuseColor;", "fcolor = diffuseColor;\nif (PS_C.x + PS_C.y > 0.0) { mediump vec2 ps_du = Out_Tex0 * 2.0;\n"
+            "mediump float ps_l0 = dot(diffuseColor.xyz, vec3(0.299, 0.587, 0.114));\n"
+            "mediump float ps_l1 = dot(texture2D(Diffuse, ps_du).xyz, vec3(0.299, 0.587, 0.114));\n"
+            "mediump float ps_l2 = dot(texture2D(Diffuse, ps_du + vec2(0.0035)).xyz, vec3(0.299, 0.587, 0.114));\n"
+            "mediump float ps_dk = 1.0 - clamp(Out_FogAmt * 2.5, 0.0, 1.0);\n"
+            "fcolor.xyz *= clamp(1.0 + ((ps_l1 - ps_l0) * PS_C.x * 0.8 + (ps_l1 - ps_l2) * PS_C.y * 2.5) * ps_dk, 0.6, 1.45); }\n"))
+    { any = true; detailIn = true; }
     // 5) wet world (+ optional cel) right before the final write. 3D / fogged shaders only: never touches HUD/2D.
     //    Wet is a single multiply; the cel branch is compiled in only when it was requested.
     if (world)
@@ -149,7 +162,7 @@ bool World_PatchPixelSource(unsigned flags, const char* src, std::string& out, b
     if (!any) { out.assign(src); return false; }
     // declare the uniforms right before main() - valid regardless of what precedes it
     mainPos = out.find("void main");
-    out.insert(mainPos, std::string("uniform mediump vec4 PS_A;\nuniform mediump vec4 PS_B;\n") + (shadowIn ? kShadowDecl : ""));
+    out.insert(mainPos, std::string("uniform mediump vec4 PS_A;\nuniform mediump vec4 PS_B;\n") + (detailIn ? "uniform mediump vec4 PS_C;\n" : "") + (shadowIn ? kShadowDecl : ""));
     if (shadowApplied) *shadowApplied = shadowIn;
     return true;
 }
@@ -278,13 +291,14 @@ void World_OnBuildSource(unsigned flags, const char** pxl, const char** vtx)
 
 void World_BeginFrame(const PSSettings& s, float wetRoads)
 {
-    float A[4] = { 0, 0, 0, 0 }, B[4] = { 0, 0, 0, 0 };
+    float A[4] = { 0, 0, 0, 0 }, B[4] = { 0, 0, 0, 0 }, C[4] = { 0, 0, 0, 0 };
     if (s.enabled && s.worldPatch)
     {
         if (s.fogOn)     { A[0] = s.fogDensity.v - 1.f; A[1] = s.fogSoftness; }
         if (s.surfaceOn) { A[2] = s.specularMul - 1.f;  A[3] = s.reflectionMul - 1.f; }
         float w = wetRoads < 0.f ? 0.f : (wetRoads > 1.f ? 1.f : wetRoads);
         B[0] = s.wetWorld ? w * s.wetStrength : 0.f;
+        C[0] = s.detailOn ? s.detailStrength : 0.f; C[1] = s.detailOn ? s.detailRelief : 0.f;
         B[1] = s.waterOn ? s.waterDetail - 1.f : 0.f;
         B[2] = s.celWorld ? s.celWorldLevels : 0.f;
     }
@@ -292,8 +306,8 @@ void World_BeginFrame(const PSSettings& s, float wetRoads)
     Shadow_Uniforms(LVP, SH);
     if (!(s.enabled && s.worldPatch)) { memset(LVP, 0, sizeof(LVP)); memset(SH, 0, sizeof(SH)); }
     ++g_frame;
-    if (memcmp(A, g_A, sizeof(A)) || memcmp(B, g_B, sizeof(B)) || memcmp(LVP, g_LVP, sizeof(LVP)) || memcmp(SH, g_SH, sizeof(SH)))
-    { memcpy(g_A, A, sizeof(A)); memcpy(g_B, B, sizeof(B)); memcpy(g_LVP, LVP, sizeof(LVP)); memcpy(g_SH, SH, sizeof(SH)); ++g_gen; }
+    if (memcmp(A, g_A, sizeof(A)) || memcmp(B, g_B, sizeof(B)) || memcmp(C, g_C, sizeof(C)) || memcmp(LVP, g_LVP, sizeof(LVP)) || memcmp(SH, g_SH, sizeof(SH)))
+    { memcpy(g_A, A, sizeof(A)); memcpy(g_B, B, sizeof(B)); memcpy(g_C, C, sizeof(C)); memcpy(g_LVP, LVP, sizeof(LVP)); memcpy(g_SH, SH, sizeof(SH)); ++g_gen; }
 }
 
 void World_ClearProgramCache() { g_progs.clear(); g_lastProg = 0; Shadow_ClearProgramCache(); }
@@ -315,7 +329,7 @@ void World_OnShaderSelected()
     {
         ProgInfo pi;
         pi.locA = glGetUniformLocation(prog, "PS_A");
-        pi.locB = glGetUniformLocation(prog, "PS_B");
+        pi.locB = glGetUniformLocation(prog, "PS_B"); pi.locC = glGetUniformLocation(prog, "PS_C");
         pi.locLVP = glGetUniformLocation(prog, "PS_LightVP");
         pi.locSh = glGetUniformLocation(prog, "PS_Shadow");
         pi.locMap = glGetUniformLocation(prog, "PS_ShadowMap");
@@ -326,6 +340,7 @@ void World_OnShaderSelected()
     if (pi.gen == g_gen) return;
     if (pi.locA >= 0) glUniform4fv(pi.locA, 1, g_A);
     if (pi.locB >= 0) glUniform4fv(pi.locB, 1, g_B);
+    if (pi.locC >= 0) glUniform4fv(pi.locC, 1, g_C);
     if (pi.locLVP >= 0) glUniformMatrix4fv(pi.locLVP, 1, GL_FALSE, g_LVP);
     if (pi.locSh >= 0) glUniform4fv(pi.locSh, 1, g_SH);
     if (pi.locMap >= 0) glUniform1i(pi.locMap, 3);

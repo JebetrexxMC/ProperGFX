@@ -25,9 +25,9 @@ int main()
     {
         PSSettings st; st.adaptive = false;
         bool* flags[] = { &st.hdr, &st.autoExp, &st.bloom, &st.sunRays, &st.lensFlare, &st.fxaa, &st.cas, &st.grading, &st.dither, &st.vignette, &st.grain,
-                          &st.chromatic, &st.tiltShift, &st.underwater, &st.cel, &st.outline, &st.vhs };
+                          &st.chromatic, &st.tiltShift, &st.underwater, &st.cel, &st.outline, &st.vhs, &st.enhance };
         for (bool* f : flags) *f = (rand() & 1);
-        st.tonemap = rand() % 4; st.gradePreset = rand() % 7; st.gamma = (rand() & 1) ? 1.f : 1.2f;
+        st.tonemap = rand() % 6; st.gradePreset = rand() % 7; st.gamma = (rand() & 1) ? 1.f : 1.2f;
         PS_UpdateLive(st, (rand() % 100) / 100.f);
         PSFrameInfo fi; fi.w = W; fi.h = H; fi.time = i * 0.3f; fi.dt = 0.016f; fi.underwater = (rand() & 1) ? 0.8f : 0.f; fi.sunX = 0.7f; fi.sunY = 0.6f; fi.sunVis = 1.f;
         PSGLState gs; gs.Save();

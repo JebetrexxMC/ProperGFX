@@ -9,6 +9,7 @@ struct PSFrameInfo
     float underwater = 0.f;               // 0..1 (CWeather::UnderWaterness)
     float sunX = 0.5f, sunY = 0.5f;       // screen UV of the sun
     float sunVis = 0.f;                   // 0 = off screen / below horizon
+    unsigned camDepth = 0;                // 1.6.1: camera depth texture (Shadow_RenderCameraDepth), 0 = none
 };
 
 struct PSFxStats

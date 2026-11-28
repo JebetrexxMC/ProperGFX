@@ -153,6 +153,22 @@ float TmCpu(int mode, float x)
         case TM_ACES: x *= 0.7232f; return fminf(1.f, fmaxf(0.f, (x * (2.51f * x + 0.03f)) / (x * (2.43f * x + 0.59f) + 0.14f)));
         case TM_TIMOTHY: x = fmaxf(x * 0.7203f, 0.0001f); return powf(x, 1.6f) / (powf(x, 1.5632f) * 1.07304f + 0.16742f);
         case TM_REINHARD: x *= 1.1998f; return x * (1.f + x / 16.f) / (1.f + x);
+        case TM_AGX:
+        {
+            float c = fminf(4.026069f, fmaxf(-12.47393f, log2f(fmaxf(x * 0.62f, 1e-10f))));
+            c = (c + 12.47393f) / 16.5f;
+            const float c2 = c * c, c4 = c2 * c2;
+            c = 15.5f * c4 * c2 - 40.14f * c4 * c + 31.96f * c4 - 6.868f * c2 * c + 0.4298f * c2 + 0.1191f * c - 0.00232f;
+            c = fmaxf(c * (1.19687900512017f - 0.0980208811401368f - 0.0990297440797205f), 0.f);
+            return c * c;
+        }
+        case TM_NEUTRAL:
+        {
+            const float off = x < 0.08f ? x - 6.25f * x * x : 0.04f;
+            const float p = x - off, sc = 0.76f, d = 1.f - sc;
+            if (p < sc) return p;
+            return 1.f - d * d / (p + d - sc);
+        }
         default: return fminf(1.f, x);
     }
 }
@@ -171,7 +187,7 @@ const Grade kGrades[] = {
 // ---- which features does this frame need? -> shader variant key ----
 enum { F_AAINLINE = 1 << 0, F_CA = 1 << 1, F_CAS = 1 << 2, F_DOF = 1 << 3, F_OUTLINE = 1 << 4, F_CEL = 1 << 5, F_AUTOEXP = 1 << 6,
        F_BLOOM = 1 << 7, F_RAYS = 1 << 8, F_FLARE = 1 << 9, F_LUT = 1 << 10, F_UNDER = 1 << 11, F_VHS = 1 << 12, F_VIGNETTE = 1 << 13,
-       F_GRAIN = 1 << 14, F_DITHER = 1 << 15, F_GRADE = 1 << 16, F_GAMMA = 1 << 17 };   // bits 18..19 = tonemap mode
+       F_GRAIN = 1 << 14, F_DITHER = 1 << 15, F_GRADE = 1 << 16, F_GAMMA = 1 << 17, F_ENHANCE = 1 << 23 };   // bits 18..19 (+ bit 24) = tonemap mode
 
 std::string DefinesFor(uint32_t key)
 {
@@ -179,10 +195,10 @@ std::string DefinesFor(uint32_t key)
         { F_AAINLINE, "FX_AA" }, { F_CA, "FX_CA" }, { F_CAS, "FX_CAS" }, { F_DOF, "FX_DOF" }, { F_OUTLINE, "FX_OUTLINE" }, { F_CEL, "FX_CEL" },
         { F_AUTOEXP, "FX_AUTOEXP" }, { F_BLOOM, "FX_BLOOM" }, { F_RAYS, "FX_RAYS" }, { F_FLARE, "FX_FLARE" }, { F_LUT, "FX_LUT" },
         { F_UNDER, "FX_UNDER" }, { F_VHS, "FX_VHS" }, { F_VIGNETTE, "FX_VIGNETTE" }, { F_GRAIN, "FX_GRAIN" }, { F_DITHER, "FX_DITHER" },
-        { F_GRADE, "FX_GRADE" }, { F_GAMMA, "FX_GAMMA" } };
+        { F_GRADE, "FX_GRADE" }, { F_GAMMA, "FX_GAMMA" }, { F_ENHANCE, "FX_ENHANCE" } };
     std::string d;
     for (auto& n : names) if (key & n.bit) d += std::string("#define ") + n.name + " 1\n";
-    d += "#define TM_MODE " + std::to_string((key >> 18) & 3) + "\n";
+    d += "#define TM_MODE " + std::to_string(((key >> 18) & 3) | ((key >> 22) & 4)) + "\n";
     return d;
 }
 
@@ -326,7 +342,8 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
                               (s.gradePreset == 0 || ga < 0.01f);
     const bool wantGrade = s.grading && !gradeNeutral;
 
-    uint32_t key = ((uint32_t)tm & 3u) << 18;
+    uint32_t key = (((uint32_t)tm & 3u) << 18) | (((uint32_t)tm & 4u) << 22);
+    if (s.enhance && (s.enhanceClarity > 0.01f || s.enhanceDenoise > 0.01f)) key |= F_ENHANCE;
     if (aaInline) key |= F_AAINLINE; if (wantCA) key |= F_CA; if (wantCAS) key |= F_CAS; if (wantDof) key |= F_DOF; if (wantOutline) key |= F_OUTLINE;
     if (s.cel && s.celAmount > 0.01f) key |= F_CEL; if (wantAuto) key |= F_AUTOEXP; if (wantBloomFx) key |= F_BLOOM; if (wantRays) key |= F_RAYS;
     if (wantFlare) key |= F_FLARE; if (s.lutOn && LUT_Texture() && s.lutAmount > 0.01f) key |= F_LUT; if (wantUnder) key |= F_UNDER; if (s.vhs && s.vhsStrength > 0.01f) key |= F_VHS;
@@ -432,7 +449,12 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
     BindTex(2, dofTex);
     BindTex(3, wantAuto ? G.lum[G.lumIdx].tex : G.dummyTex);
     BindTex(4, LUT_Texture() ? LUT_Texture() : G.dummyTex);
-    Set1i(P, "uScene", 0); Set1i(P, "uBloom", 1); Set1i(P, "uDof", 2); Set1i(P, "uLum", 3); Set1i(P, "uLut", 4);
+    const bool realDof = wantDof && s.dofMode == 2 && fi.camDepth;
+    BindTex(5, realDof ? (GLuint)fi.camDepth : G.dummyTex);
+    Set1i(P, "uScene", 0); Set1i(P, "uBloom", 1); Set1i(P, "uDof", 2); Set1i(P, "uLum", 3); Set1i(P, "uLut", 4); Set1i(P, "uCamDepth", 5);
+    // 1.6.1: mode 2 without a depth this frame (menu / cutscene without world draws) falls back to no blur instead of a fake band
+    Set4(P, "uDofP", realDof ? 2.f : (s.dofMode == 2 ? 3.f : (float)s.dofMode), s.dofFocusDist, s.dofAperture, s.dofRadius);
+    Set4(P, "uDofQ", s.dofBokeh, s.tiltStrength, s.tiltWidth, 0.f);
 
     const float k = (tm == TM_OFF) ? 0.f : 1.8f * s.hdrAmount.v;
     const float norm = (tm == TM_OFF) ? 1.f : 1.f / fmaxf(TmCpu(tm, 1.f + k), 0.05f);
@@ -446,12 +468,14 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
     Set4(P, "uF", s.casStrength, wantDof ? s.tiltStrength : 0.f, wantUnder ? fi.underwater * s.underwaterStrength : 0.f, s.lutAmount);
     Set4(P, "uG", s.celAmount, s.celLevels, s.outlineStrength, s.outlineThreshold);
     Set4(P, "uH", s.vhsStrength, s.tiltFocus, s.tiltWidth, 0.f);
+    Set4(P, "uEN", s.enhanceClarity, 0.f, s.enhanceDenoise, s.enhanceRadius);
     Set4(P, "uSun", fi.sunX, fi.sunY, fi.sunVis, s.sunRaysDecay);
     { const PSLutInfo& li = LUT_Info(); Set4(P, "uLutP", (float)(li.n > 1 ? li.n : 16), (float)(li.tilesPerRow > 0 ? li.tilesPerRow : 16), li.w > 0 ? 1.f / li.w : 1.f / 256.f, li.h > 0 ? 1.f / li.h : 1.f / 16.f); }
     Set4(P, "uK", s.autoBias, s.autoRange, norm, G.frame);
     Set4(P, "uGS", g.sh[0] * ga, g.sh[1] * ga, g.sh[2] * ga, 0.f);
     Set4(P, "uGH", g.hi[0] * ga, g.hi[1] * ga, g.hi[2] * ga, s.fxaaStrength);
     DrawTri();
+    BindTex(5, 0); glActiveTexture(GL_TEXTURE0);             // unit 5 is outside the saved GL state
 
     G.stats.adaptiveLevel = G.level; G.stats.avgFrameMs = G.emaDt * 1000.f; G.stats.passes = g_passes;
     G.stats.variants = (int)G.variants.size(); G.stats.fullResFetches = fetches;
